@@ -4,6 +4,7 @@
 // this; they've already been solved by the time this runs.
 
 const { runAllocationBatch } = require('./services/engineClient');
+const { escalateStaleMobilizations } = require('./services/donorFallback');
 
 function startScheduler() {
   const intervalMs = parseInt(process.env.BATCH_INTERVAL_MS, 10) || 5 * 60 * 1000; // default: 5 minutes
@@ -16,6 +17,15 @@ function startScheduler() {
       console.log('[Scheduled batch]', result);
     } catch (err) {
       console.error('[Scheduled batch] failed:', err.message);
+    }
+
+    try {
+      const escalations = await escalateStaleMobilizations();
+      if (escalations.length > 0) {
+        console.log('[Escalation]', escalations);
+      }
+    } catch (err) {
+      console.error('[Escalation] failed:', err.message);
     }
   }, intervalMs);
 }

@@ -3,6 +3,7 @@
 // route handlers (immediate trigger) or a scheduler (batch trigger).
 
 const pool = require('../db');
+const { triggerDonorFallback } = require('./donorFallback');
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://127.0.0.1:5001';
 
@@ -63,17 +64,22 @@ async function runAllocationBatch() {
   }
 
   // Requests fully covered get marked fulfilled via inventory.
-  // Requests still in `shortfalls` are left NULL (still pending) --
-  // the donor-fallback trigger (Section 7A) isn't built yet; that's
-  // separate work, not silently faked here.
+  // Requests still short escalate to the Section 7A donor-fallback flow --
+  // except elective, which needs the proper 7B feasibility+risk-check
+  // pipeline (depends on the forecasting model, not built yet -- future
+  // phase). Elective shortfalls are left untouched for now.
   const shortfallRequestIds = new Set(Object.keys(result.shortfalls));
   const processedRequestIds = requestsResult.rows.map((r) => r.request_id);
+  const fallbackResults = [];
 
-  for (const request_id of processedRequestIds) {
-    if (!shortfallRequestIds.has(request_id)) {
+  for (const req of requestsResult.rows) {
+    if (!shortfallRequestIds.has(req.request_id)) {
       await pool.query(`UPDATE requests SET fulfillment_path = 'inventory' WHERE request_id = $1`, [
-        request_id,
+        req.request_id,
       ]);
+    } else if (req.urgency_tier !== 'elective') {
+      const outcome = await triggerDonorFallback(req);
+      fallbackResults.push(outcome);
     }
   }
 
@@ -81,6 +87,7 @@ async function runAllocationBatch() {
     processed: processedRequestIds.length,
     assignments: result.assignments.length,
     shortfalls: result.shortfalls,
+    donor_fallback_triggered: fallbackResults,
   };
 }
 
