@@ -1,12 +1,24 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const pool = require('./db');
 
 const app = express();
-app.use(cors());
-app.use(express.json()); // lets Express read JSON request bodies
 
+// CORS must allow credentials (cookies) and a SPECIFIC origin -- the
+// wildcard '*' origin (the old config) is incompatible with
+// credentialed requests; browsers reject that combination outright.
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    credentials: true,
+  })
+);
+app.use(express.json()); // lets Express read JSON request bodies
+app.use(cookieParser()); // lets Express read the httpOnly auth cookie
+
+app.use('/api/auth', require('./routes/auth'));
 app.use('/api/organizations', require('./routes/organizations'));
 app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/requests', require('./routes/requests'));

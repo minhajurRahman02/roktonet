@@ -1,0 +1,67 @@
+# docker-compose.yml -- lives at your REPO ROOT (alongside backend/,
+# frontend/, and "Optimization Engine/" folders), not inside any one
+# service's folder.
+#
+# This file defines all three services as one coordinated system: how to
+# build each one, what ports to expose, what environment variables they
+# need, and how they can reach each other.
+#
+# Note: modern Docker Compose no longer needs a top-level "version:" key
+# (older tutorials often show one -- it's deprecated, safe to omit).
+
+services:
+  engine:
+    # NOTE: match this to your ACTUAL folder name/casing exactly. If your
+    # folder is literally "Optimization Engine" (capital letters, a space),
+    # the quotes below are required -- YAML needs quoting around any path
+    # containing a space.
+    build: "./Optimization Engine"
+    ports:
+      - "5001:5001"
+    # No environment variables needed -- the engine is stateless, exactly
+    # as designed back in Phase 5.
+
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    # Pulls in all your real secrets (DB credentials, JWT_SECRET,
+    # BREVO_API_KEY, etc.) from the .env file you already have -- nothing
+    # duplicated or hardcoded here.
+    env_file:
+      - ./backend/.env
+    # This ONE variable is deliberately overridden here, taking priority
+    # over whatever's in .env (Compose applies `environment:` after
+    # `env_file:`). Your .env still has ENGINE_URL=http://127.0.0.1:5001
+    # for when you run the backend WITHOUT Docker -- but inside Docker's
+    # network, "engine" is the correct hostname (Docker's internal DNS
+    # resolves service names automatically), not 127.0.0.1.
+    environment:
+      ENGINE_URL: http://engine:5001
+    depends_on:
+      - engine
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    # Same idea as ENGINE_URL above, but for the frontend's proxy target
+    # (see vite.config.js's BACKEND_PROXY_TARGET comment).
+    environment:
+      BACKEND_PROXY_TARGET: http://backend:3000
+    # Two volume entries working together:
+    # 1. Bind-mounts your actual frontend folder INTO the container, so
+    #    edits you make in your normal editor appear live inside the
+    #    running container -- this is what makes hot-reload actually work.
+    # 2. The node_modules line looks odd but is a well-known necessary
+    #    trick: without it, the bind-mount above would completely hide the
+    #    node_modules that "npm ci" installed INSIDE the container during
+    #    build, replacing it with whatever's on your host PC (which may
+    #    not exist, or belong to a different OS). This line tells Docker
+    #    "keep the container's own node_modules for this one subfolder,
+    #    don't let the bind-mount above touch it."
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend

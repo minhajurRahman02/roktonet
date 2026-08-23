@@ -1,0 +1,14 @@
+# node_modules is EXCLUDED deliberately -- it's platform-specific and gets
+# freshly installed inside the container by "npm ci" during the build.
+# Copying your PC's local node_modules in would be wasteful and could even
+# break things (some packages compile differently per OS).
+node_modules/
+
+# NEVER bake secrets into an image -- .env holds your real DB password,
+# JWT secret, and API keys. Environment variables get passed in at
+# container-run time instead (see docker-compose.yml, D5), never baked
+# into the image itself.
+.env
+
+.git/
+.gitignore

@@ -1,0 +1,9 @@
+# Files/folders Docker should never copy into the image -- keeps builds
+# faster (smaller context sent to the Docker daemon) and avoids leaking
+# local-only junk (like a stray virtual environment) into the image.
+__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+.gitignore

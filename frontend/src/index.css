@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+/* =========================================================================
+   Landing page (Phase 7.5) -- shared across HeroSection, BeforeAfterSection,
+   FeaturesSection, ImpactSection, etc. Kept global rather than per-component
+   since several sections reuse the same hover-card/donut/character classes.
+   ========================================================================= */
+
+.mono { font-family: 'IBM Plex Mono', monospace; }
+
+/* card hover: subtle lift + soft spread shadow */
+.hover-card {
+  transition: transform 0.4s cubic-bezier(.2,.8,.2,1), box-shadow 0.4s cubic-bezier(.2,.8,.2,1);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.hover-card:hover {
+  transform: translateY(-1px) scale(1.001);
+  box-shadow: 0 10px 10px -10px rgba(28, 74, 61, 0.22), 0 10px 18px -8px rgba(0, 0, 0, 0.08);
+}
+
+/* hero background blobs */
+@keyframes drift-a { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(30px,-20px) scale(1.1);} }
+@keyframes drift-b { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(-24px,18px) scale(1.12);} }
+.blob-a { animation: drift-a 14s ease-in-out infinite; }
+.blob-b { animation: drift-b 17s ease-in-out infinite; }
+
+/* hero: hospital request network -- bubble pop in/out + blood drop travel */
+.bubble { animation: bubble-cycle 7s ease-in-out infinite; opacity: 0; transform: scale(.5); }
+@keyframes bubble-cycle {
+  0%   { opacity: 0; transform: scale(.5); }
+  6%   { opacity: 1; transform: scale(1.06); }
+  11%  { opacity: 1; transform: scale(1); }
+  54%  { opacity: 1; transform: scale(1); }
+  60%  { opacity: 0; transform: scale(.6); }
+  100% { opacity: 0; transform: scale(.6); }
+}
+.drop-1 { offset-path: path('M290,50 Q170,10 50,50');   animation: drop-travel 7s linear infinite; }
+.drop-2 { offset-path: path('M290,210 Q330,130 290,50'); animation: drop-travel 7s linear infinite; animation-delay: 1.75s; }
+.drop-3 { offset-path: path('M50,210 Q170,250 290,210'); animation: drop-travel 7s linear infinite; animation-delay: 3.5s; }
+.drop-4 { offset-path: path('M50,50 Q10,130 50,210');    animation: drop-travel 7s linear infinite; animation-delay: 5.25s; }
+@keyframes drop-travel {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  13%  { offset-distance: 0%;   opacity: 0; }
+  16%  { offset-distance: 2%;   opacity: 1; }
+  54%  { offset-distance: 100%; opacity: 1; }
+  57%  { offset-distance: 100%; opacity: 0; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+.bubble-1 { animation-delay: 0s; }
+.bubble-2 { animation-delay: 1.75s; }
+.bubble-3 { animation-delay: 3.5s; }
+.bubble-4 { animation-delay: 5.25s; }
+
+/* before/after: vibrating exclamation badge (not the whole bubble) */
+@keyframes exclaim-shake {
+  0%,100% { transform: translate(0,0) rotate(0deg); }
+  25% { transform: translate(-1px,-1px) rotate(-6deg); }
+  50% { transform: translate(0,0) rotate(0deg); }
+  75% { transform: translate(1px,-1px) rotate(6deg); }
+}
+.exclaim-badge {
+  animation: exclaim-shake 0.4s ease-in-out infinite;
+  position: absolute; top: -8px; right: -8px;
+  width: 18px; height: 18px; border-radius: 9999px;
+  background: #A9382F; color: white; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.char-head { border-radius: 9999px; }
+.speech-tail-down::after {
+  content: ''; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 7px solid var(--tail-color, #FBEAEA);
+}
+.speech-tail-side::after {
+  content: ''; position: absolute; left: -7px; top: 50%; transform: translateY(-50%);
+  border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 7px solid var(--tail-color, #E9F0EC);
+}
+.thought-dots span {
+  display: block; border-radius: 9999px; background: #FBEAEA; position: absolute;
+}
+.torso { border-radius: 14px 14px 5px 5px; position: relative; }
+.arm { position: absolute; top: 4px; width: 7px; height: 20px; border-radius: 4px; }
+
+/* impact section: donut chart via conic-gradient */
+.donut {
+  width: 96px; height: 96px; border-radius: 9999px;
+  background: conic-gradient(#1C4A3D 0% 55%, #B8811F 55% 75%, #A9382F 75% 90%, #5B7A8C 90% 100%);
+}
+.donut-hole {
+  width: 52px; height: 52px; border-radius: 9999px; background: white;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+}
