@@ -4,6 +4,7 @@
 
 const pool = require('../db');
 const { triggerDonorFallback } = require('./donorFallback');
+const { logRequestEvent } = require('./requestEvents');
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://127.0.0.1:5001';
 
@@ -77,7 +78,24 @@ async function runAllocationBatch() {
       await pool.query(`UPDATE requests SET fulfillment_path = 'inventory' WHERE request_id = $1`, [
         req.request_id,
       ]);
+
+      // Real count, not a placeholder -- how many of THIS request's units
+      // came from this specific batch's assignments.
+      const unitsMatched = result.assignments.filter((a) => a.request_id === req.request_id).length;
+      await logRequestEvent(
+        req.request_id,
+        'engine_resolved_inventory',
+        `Matched with ${unitsMatched} unit(s) from existing inventory — request resolved`,
+        { units_matched: unitsMatched }
+      );
     } else if (req.urgency_tier !== 'elective') {
+      await logRequestEvent(
+        req.request_id,
+        'engine_shortfall',
+        'Inventory alone could not fully cover this request',
+        { shortfall: result.shortfalls[req.request_id] }
+      );
+
       const outcome = await triggerDonorFallback(req);
       fallbackResults.push(outcome);
     }

@@ -3,6 +3,7 @@
 // donors and invite a small, targeted batch -- not a blanket alert.
 
 const pool = require('../db');
+const { logRequestEvent } = require('./requestEvents');
 
 const MAX_DONORS_PER_INVITE = 5;
 
@@ -66,6 +67,24 @@ async function triggerDonorFallback(request) {
     request.request_id,
   ]);
 
+  // Real event log entries -- the search-triggered message reflects the
+  // ACTUAL Section 7A branching logic (parallel vs sequential), and the
+  // invited count is the real number just inserted above, not a guess.
+  const searchMessage =
+    request.urgency_tier === 'critical'
+      ? 'Critical priority — searching for compatible donors in parallel with inventory'
+      : 'Inventory insufficient — searching for compatible donors';
+  await logRequestEvent(request.request_id, 'donor_search_triggered', searchMessage);
+
+  await logRequestEvent(
+    request.request_id,
+    'donors_invited',
+    donorsResult.rows.length > 0
+      ? `Invited ${donorsResult.rows.length} compatible eligible donor(s)`
+      : 'No compatible eligible donors currently available',
+    { invited_count: donorsResult.rows.length }
+  );
+
   return { request_id: request.request_id, invited: donorsResult.rows.length, fulfillment_path: fulfillmentPath };
 }
 
@@ -86,6 +105,14 @@ async function escalateStaleMobilizations() {
 
   const results = [];
   for (const request of staleResult.rows) {
+    // Logged BEFORE delegating to triggerDonorFallback, which will log its
+    // own (accurate) search/invite events for this new round -- this just
+    // adds the "why are we doing this again" context on top.
+    await logRequestEvent(
+      request.request_id,
+      'escalation_triggered',
+      'All previously invited donors declined — inviting a new batch'
+    );
     const outcome = await triggerDonorFallback(request);
     results.push(outcome);
   }

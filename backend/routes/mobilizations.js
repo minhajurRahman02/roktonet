@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { logRequestEvent } = require('../services/requestEvents');
 
 // GET /api/mobilizations/:requestId - see which donors were invited for a request
 router.get('/:requestId', async (req, res) => {
@@ -35,7 +36,19 @@ router.post('/:id/respond', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Mobilization record not found' });
     }
-    res.json(result.rows[0]);
+    const mobilization = result.rows[0];
+
+    // Anonymized -- no donor identity in the log, matching the same
+    // privacy stance already applied to the hospital-facing request
+    // detail view (counts only, never who).
+    await logRequestEvent(
+      mobilization.request_id,
+      'donor_responded',
+      invite_status === 'confirmed' ? 'A donor confirmed availability' : 'A donor declined',
+      { invite_status }
+    );
+
+    res.json(mobilization);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
