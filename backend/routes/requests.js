@@ -151,3 +151,67 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/requests/:id/allocation - which real org(s)/unit(s) fulfilled
+// this request, if resolved via inventory. Ownership-checked like /:id.
+// This is the endpoint flagged as missing entirely in dashboard_specification.md
+// Section 5 -- allocation_records had no dedicated route before this.
+router.get('/:id/allocation', requireAuth, async (req, res) => {
+  try {
+    const requestResult = await pool.query('SELECT org_id FROM requests WHERE request_id = $1', [
+      req.params.id,
+    ]);
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    const isOwner = req.user.org_id === requestResult.rows[0].org_id;
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'You do not have access to this request' });
+    }
+
+    const allocationResult = await pool.query(
+      `SELECT ar.unit_id, iu.org_id, o.name AS org_name, o.district, iu.blood_type, iu.component
+       FROM allocation_records ar
+       JOIN inventory_units iu ON iu.unit_id = ar.unit_id
+       JOIN organizations o ON o.org_id = iu.org_id
+       WHERE ar.request_id = $1`,
+      [req.params.id]
+    );
+    res.json(allocationResult.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/requests/:id/events - the real, live tracking log for a request.
+// Ownership-checked the same way as GET /:id -- must confirm access to the
+// parent request before exposing its event history.
+router.get('/:id/events', requireAuth, async (req, res) => {
+  try {
+    const requestResult = await pool.query('SELECT org_id FROM requests WHERE request_id = $1', [
+      req.params.id,
+    ]);
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    const isOwner = req.user.org_id === requestResult.rows[0].org_id;
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'You do not have access to this request' });
+    }
+
+    const eventsResult = await pool.query(
+      'SELECT * FROM request_events WHERE request_id = $1 ORDER BY created_at ASC',
+      [req.params.id]
+    );
+    res.json(eventsResult.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
