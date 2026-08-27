@@ -1,3 +1,4 @@
+
 // Bridges Postgres and the Python optimization service.
 // This module never talks to the frontend directly -- it's called by
 // route handlers (immediate trigger) or a scheduler (batch trigger).
