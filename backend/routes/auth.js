@@ -266,3 +266,96 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 });
 
+
+
+// POST /api/auth/forgot-password
+// Always responds with the same generic success message whether or not the
+// email exists -- otherwise this endpoint becomes an account-enumeration
+// oracle (submit an email, see if the response differs, learn who's
+// registered). An email only actually goes out if the account is real.
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  const genericResponse = {
+    message: 'If an account with that email exists, a password reset link has been sent.',
+  };
+
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  try {
+    const result = await pool.query('SELECT user_id FROM users WHERE email = $1', [
+      email.toLowerCase(),
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.json(genericResponse); // same response as the success path, deliberately
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
+
+    await pool.query(
+      'UPDATE users SET reset_token = $1, reset_token_expires_at = $2 WHERE user_id = $3',
+      [resetToken, expiresAt, result.rows[0].user_id]
+    );
+
+    try {
+      await sendPasswordResetEmail(email.toLowerCase(), resetToken);
+    } catch (emailErr) {
+      // Log it, but still return the generic success response -- revealing
+      // a delivery failure here would itself leak that the email exists.
+      console.error('[auth] password reset email failed to send:', emailErr.message);
+    }
+
+    res.json(genericResponse);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', async (req, res) => {
+  const { token, new_password } = req.body;
+
+  if (!token || !new_password) {
+    return res.status(400).json({ error: 'token and new_password are required' });
+  }
+  if (new_password.length < 8) {
+    return res.status(400).json({ error: 'new_password must be at least 8 characters' });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT user_id, reset_token_expires_at FROM users WHERE reset_token = $1',
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or already-used reset link' });
+    }
+
+    const user = result.rows[0];
+    if (new Date(user.reset_token_expires_at) < new Date()) {
+      return res.status(400).json({ error: 'This reset link has expired. Please request a new one.' });
+    }
+
+    const passwordHash = await bcrypt.hash(new_password, BCRYPT_ROUNDS);
+
+    // Clear the token on use -- same single-use principle as email
+    // verification. Also invalidates the reset link the moment it's used.
+    await pool.query(
+      `UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires_at = NULL
+       WHERE user_id = $2`,
+      [passwordHash, user.user_id]
+    );
+
+    res.json({ message: 'Password updated. You can now log in with your new password.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
