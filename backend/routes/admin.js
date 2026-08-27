@@ -17,4 +17,5 @@ router.post('/run-batch', async (req, res) => {
   }
 });
 
+// POST /api/admin/run-batch - manually trigger a batch allocation run
 module.exports = router;
