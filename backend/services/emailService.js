@@ -1,4 +1,4 @@
-// Email delivery -- switched from Resend to Brevo.
+
 // Reason: Resend's free tier without a verified domain can only deliver to
 // the email that owns the Resend account -- a real risk during a live demo
 // if someone registers with their own email. Brevo's free tier (300/day)
