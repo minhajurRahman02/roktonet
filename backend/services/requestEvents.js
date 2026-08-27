@@ -17,5 +17,3 @@ async function logRequestEvent(requestId, eventType, message, metadata = null) {
     [requestId, eventType, message, metadata ? JSON.stringify(metadata) : null]
   );
 }
-
-module.exports = { logRequestEvent };
