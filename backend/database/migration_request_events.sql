@@ -1,4 +1,3 @@
--- RoktoNet — request tracking log (Phase 7.7 follow-up)
 -- Real events logged at each genuine pipeline stage -- no fabricated
 -- steps. Reusable later for Admin's system-wide audit view.
 
