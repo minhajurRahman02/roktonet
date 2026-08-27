@@ -37,22 +37,3 @@ router.post('/:id/respond', async (req, res) => {
       return res.status(404).json({ error: 'Mobilization record not found' });
     }
     const mobilization = result.rows[0];
-
-    // Anonymized -- no donor identity in the log, matching the same
-    // privacy stance already applied to the hospital-facing request
-    // detail view (counts only, never who).
-    await logRequestEvent(
-      mobilization.request_id,
-      'donor_responded',
-      invite_status === 'confirmed' ? 'A donor confirmed availability' : 'A donor declined',
-      { invite_status }
-    );
-
-    res.json(mobilization);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
