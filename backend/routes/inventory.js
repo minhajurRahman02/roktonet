@@ -39,3 +39,31 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+
+// POST /api/inventory - log a new inventory unit
+router.post('/', async (req, res) => {
+  const { org_id, donor_id, blood_type, component, collection_date, expiry_date } = req.body;
+
+  if (!org_id || !blood_type || !component || !collection_date || !expiry_date) {
+    return res.status(400).json({
+      error: 'org_id, blood_type, component, collection_date, and expiry_date are required',
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO inventory_units (org_id, donor_id, blood_type, component, collection_date, expiry_date)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [org_id, donor_id || null, blood_type, component, collection_date, expiry_date]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
