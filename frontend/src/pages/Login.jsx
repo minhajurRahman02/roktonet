@@ -17,3 +17,37 @@ const ROLE_HOME = {
   donor: '/hospital',
 };
 
+export default function Login() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setNeedsVerification(false);
+    setIsSubmitting(true);
+
+    try {
+      const user = await login(email.trim(), password);
+      // ProtectedRoute stashes the page someone was trying to reach in
+      // location.state.from before bouncing them to /login. If that
+      // exists, honor it (e.g. they bookmarked /admin) -- otherwise fall
+      // back to this role's default home.
+      const intendedDestination = location.state?.from;
+      navigate(intendedDestination || ROLE_HOME[user.role] || '/hospital');
+    } catch (err) {
+      setError(err.message);
+      if (err.data?.needs_verification) {
+        setNeedsVerification(true);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
