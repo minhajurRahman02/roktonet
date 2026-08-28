@@ -55,3 +55,53 @@ async function sendBrevoEmail(toEmail, subject, html) {
   return response.json();
 }
 
+async function sendVerificationEmail(toEmail, token) {
+  const verifyUrl = frontendUrl(`/verify?token=${token}`);
+
+  const html = emailShell(`
+    <p style="font-size: 15px; color: #1A1F1C;">
+      Confirm your email address to activate your RoktoNet account.
+    </p>
+    <a href="${verifyUrl}"
+       style="display: inline-block; background: #1C4A3D; color: #ffffff; text-decoration: none;
+              padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin: 20px 0;">
+      Verify my email
+    </a>
+    <p style="font-size: 12px; color: #9CA3AF; margin-top: 24px;">
+      If the button doesn't work, copy this link into your browser:<br>
+      <span style="word-break: break-all;">${verifyUrl}</span>
+    </p>
+    <p style="font-size: 12px; color: #9CA3AF; margin-top: 24px;">
+      This link expires in 24 hours. If you didn't create a RoktoNet account, you can ignore this email.
+    </p>
+  `);
+
+  return sendBrevoEmail(toEmail, 'Verify your RoktoNet account', html);
+}
+
+async function sendPasswordResetEmail(toEmail, token) {
+  const resetUrl = frontendUrl(`/reset-password?token=${token}`);
+
+  const html = emailShell(`
+    <p style="font-size: 15px; color: #1A1F1C;">
+      Someone requested a password reset for this account. If that was you, choose a new password below.
+    </p>
+    <a href="${resetUrl}"
+       style="display: inline-block; background: #1C4A3D; color: #ffffff; text-decoration: none;
+              padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin: 20px 0;">
+      Reset my password
+    </a>
+    <p style="font-size: 12px; color: #9CA3AF; margin-top: 24px;">
+      If the button doesn't work, copy this link into your browser:<br>
+      <span style="word-break: break-all;">${resetUrl}</span>
+    </p>
+    <p style="font-size: 12px; color: #9CA3AF; margin-top: 24px;">
+      This link expires in 60 minutes. If you didn't request this, you can safely ignore this email --
+      your password will not change.
+    </p>
+  `);
+
+  return sendBrevoEmail(toEmail, 'Reset your RoktoNet password', html);
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail };
