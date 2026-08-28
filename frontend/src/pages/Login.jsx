@@ -51,3 +51,58 @@ export default function Login() {
       setIsSubmitting(false);
     }
   }
+
+  return (
+    <AuthLayout
+      headline={<>O-negative is<br />1% of Bangladesh.</>}
+      tagline="Every unit counts. Our engine makes sure none go to waste."
+    >
+      <h1 className="font-display font-semibold text-lg text-textprimary dark:text-textprimary-dark mb-1">
+        Welcome back
+      </h1>
+      <p className="text-sm text-textsecondary dark:text-textsecondary-dark mb-5">Log in to your RoktoNet account.</p>
+
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <FormField label="Email" htmlFor="email">
+          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </FormField>
+
+        <FormField label="Password" htmlFor="password">
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </FormField>
+
+        <div className="text-right -mt-2">
+          <Link to="/forgot-password" className="text-xs text-textsecondary dark:text-textsecondary-dark underline">
+            Forgot password?
+          </Link>
+        </div>
+
+        {error && (
+          <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">
+            <p>{error}</p>
+            {needsVerification && (
+              <p className="mt-1 text-xs">Check your inbox for the verification email we sent when you registered.</p>
+            )}
+          </div>
+        )}
+
+        <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
+          {isSubmitting ? 'Logging in…' : 'Log in'}
+        </Button>
+      </form>
+
+      <p className="text-sm text-center text-textsecondary dark:text-textsecondary-dark mt-5">
+        Don&apos;t have an account?{' '}
+        <Link to="/register" className="text-primary dark:text-textprimary-dark font-medium underline">
+          Register
+        </Link>
+      </p>
+    </AuthLayout>
+  );
+}
