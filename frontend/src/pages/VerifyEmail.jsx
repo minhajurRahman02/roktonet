@@ -43,3 +43,55 @@ export default function VerifyEmail() {
         setMessage(err.message);
       });
   }, [token]);
+
+  return (
+    <AuthLayout headline="Confirming who you are, so the network can trust you.">
+      <div className="text-center py-2">
+        {status === 'loading' && (
+          <>
+            <Loader2 className="mx-auto text-primary dark:text-textprimary-dark mb-3 animate-spin" size={40} />
+            <h1 className="font-display font-semibold text-lg text-textprimary dark:text-textprimary-dark">
+              Verifying your email…
+            </h1>
+          </>
+        )}
+
+        {status === 'success' && (
+          <>
+            <motion.div {...iconMotion}>
+              <CheckCircle2 className="mx-auto text-primary dark:text-textprimary-dark mb-3" size={40} />
+            </motion.div>
+            <h1 className="font-display font-semibold text-lg text-textprimary dark:text-textprimary-dark mb-2">
+              Email verified
+            </h1>
+            <p className="text-sm text-textsecondary dark:text-textsecondary-dark">{message}</p>
+            <Link
+              to="/login"
+              className="inline-block mt-6 text-sm text-primary dark:text-textprimary-dark font-medium underline"
+            >
+              Go to login
+            </Link>
+          </>
+        )}
+
+        {status === 'error' && (
+          <>
+            <motion.div {...iconMotion}>
+              <XCircle className="mx-auto text-critical-text dark:text-critical-dtext mb-3" size={40} />
+            </motion.div>
+            <h1 className="font-display font-semibold text-lg text-textprimary dark:text-textprimary-dark mb-2">
+              Verification failed
+            </h1>
+            <p className="text-sm text-textsecondary dark:text-textsecondary-dark">{message}</p>
+            <Link
+              to="/register"
+              className="inline-block mt-6 text-sm text-primary dark:text-textprimary-dark font-medium underline"
+            >
+              Back to register
+            </Link>
+          </>
+        )}
+      </div>
+    </AuthLayout>
+  );
+}
