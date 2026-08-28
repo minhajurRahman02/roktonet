@@ -55,37 +55,3 @@ export default function ForgotPassword() {
       </AuthLayout>
     );
   }
-
-  return (
-    <AuthLayout headline="A trail that can't be guessed, only proven.">
-      <h1 className="font-display font-semibold text-lg text-textprimary dark:text-textprimary-dark mb-1">
-        Reset your password
-      </h1>
-      <p className="text-sm text-textsecondary dark:text-textsecondary-dark mb-5">
-        Enter your email and we&apos;ll send you a reset link.
-      </p>
-
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <FormField label="Email" htmlFor="email">
-          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </FormField>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">
-            {error}
-          </p>
-        )}
-
-        <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
-          {isSubmitting ? 'Sending…' : 'Send reset link'}
-        </Button>
-      </form>
-
-      <p className="text-sm text-center text-textsecondary dark:text-textsecondary-dark mt-5">
-        <Link to="/login" className="text-primary dark:text-textprimary-dark font-medium underline">
-          Back to login
-        </Link>
-      </p>
-    </AuthLayout>
-  );
-}
