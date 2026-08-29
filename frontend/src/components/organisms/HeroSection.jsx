@@ -6,9 +6,9 @@ export default function HeroSection() {
 
       <div className="max-w-6xl mx-auto px-6 py-24 md:py-28 relative z-10 grid md:grid-cols-2 gap-12 items-center">
         <div>
-          <p className="mono text-xs text-white/60 mb-4 tracking-wide">NOT ANOTHER DONOR-FINDER APP</p>
+          <p className="mono text-xs text-white/60 mb-4 tracking-wide">APART FROM ONLY DONOR FINDING</p>
           <h1 className="font-display font-bold text-4xl md:text-5xl leading-tight mb-5">
-            Blood allocation, <br />optimized — not just <br />searched for.
+            Blood allocation <br />optimized, not just <br />searched for.
           </h1>
           <p className="text-white/75 text-base max-w-md mb-8 leading-relaxed">
             RoktoNet tracks real blood inventory across hospitals and banks, then uses a constrained optimization

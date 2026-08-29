@@ -24,7 +24,7 @@ export default function ImpactSection() {
     <section id="impact" className="max-w-6xl mx-auto px-6 py-20">
       <h2 className="font-display font-bold text-2xl text-center mb-2 dark:text-textprimary-dark">The system, live</h2>
       <p className="text-gray-500 dark:text-textsecondary-dark text-center mb-10">
-        Pulled directly from RoktoNet&apos;s real database — not illustrative numbers.
+        Summarized data, pulled directly from RoktoNet&apos;s database
       </p>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

@@ -94,7 +94,7 @@ export default function RequestTrackingMap({ request, allocation, mobilizations 
           ))}
         </div>
         <p className="text-[10px] text-gray-400 mt-2 text-center max-w-xs">
-          Not shown by location — donor addresses aren&apos;t tracked in the system
+          Not shown by location, donor addresses aren&apos;t tracked in the system
         </p>
       </div>
     );

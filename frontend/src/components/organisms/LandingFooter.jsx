@@ -47,9 +47,9 @@ export default function LandingFooter() {
       <div className="max-w-6xl mx-auto px-6 py-14 grid sm:grid-cols-2 md:grid-cols-4 gap-10">
         <div>
           <a href="#top" className="flex items-center gap-2 mb-3">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#E8938C">
+            {/* <svg width="20" height="20" viewBox="0 0 24 24" fill="#E8938C">
               <path d="M12 2C12 2 5 11 5 15.5C5 19.09 8.13 22 12 22C15.87 22 19 19.09 19 15.5C19 11 12 2 12 2Z" />
-            </svg>
+            </svg> */}
             <span className="font-display font-bold text-lg">RoktoNet</span>
           </a>
           <p className="text-white/60 text-sm leading-relaxed mb-4">

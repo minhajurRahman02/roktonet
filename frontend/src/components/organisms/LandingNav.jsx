@@ -39,9 +39,9 @@ export default function LandingNav() {
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <a href="#top" className="flex items-center gap-2">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="#A9382F">
+          {/* <svg width="22" height="22" viewBox="0 0 24 24" fill="#A9382F">
             <path d="M12 2C12 2 5 11 5 15.5C5 19.09 8.13 22 12 22C15.87 22 19 19.09 19 15.5C19 11 12 2 12 2Z" />
-          </svg>
+          </svg> */}
           <span className="font-display font-bold text-xl text-primary dark:text-textprimary-dark">RoktoNet</span>
         </a>
 
