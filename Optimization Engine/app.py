@@ -1,12 +1,3 @@
-"""
-RoktoNet Python service -- wraps the optimization engine as a small REST
-API so the Node backend can call it (Section 16's internal REST bridge).
-
-This service is stateless: it never touches the database directly. The
-Node backend is responsible for fetching current requests/inventory from
-Postgres, sending them here, and writing the results back.
-"""
-
 from flask import Flask, request, jsonify
 from engine import allocate
 
@@ -21,13 +12,11 @@ def health():
 @app.route('/engine/allocate', methods=['POST'])
 def engine_allocate():
     """
-    Expects JSON body:
     {
         "requests": [...],       # list of pending requests
         "inventory": [...],      # list of available inventory units
         "organizations": {...}   # {org_id: district}
     }
-    Returns the same shape as engine.allocate(): assignments, shortfalls, status.
     """
     data = request.get_json(force=True, silent=True)
     if not data:
