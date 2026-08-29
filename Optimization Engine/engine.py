@@ -53,7 +53,7 @@ def allocate(requests: list[dict], inventory: list[dict], organizations: dict) -
     """
     prob = pulp.LpProblem("RoktoNet_Allocation", pulp.LpMinimize)
 
-    # --- Decision variables: one per compatible (unit, request) pair ---
+    # going through every unit, for every unit going through every request, if compatible, assign that unit
     x = {}
     for unit in inventory:
         for req in requests:
@@ -100,15 +100,15 @@ def allocate(requests: list[dict], inventory: list[dict], organizations: dict) -
         + EXPIRY_TIE_BREAK_WEIGHT * pulp.lpSum(expiry_cost[uid] * var for (uid, rid), var in x.items())
     )
 
-    # --- Constraints ---
-    # Each inventory unit assigned to at most one request.
+    # constraints: 
+    # each inventory unit assigned to at most one request
     for unit in inventory:
         vars_for_unit = [x[(unit["unit_id"], req["request_id"])] for req in requests
                           if (unit["unit_id"], req["request_id"]) in x]
         if vars_for_unit:
             prob += pulp.lpSum(vars_for_unit) <= 1
 
-    # Units assigned to a request + its shortfall must equal its full quantity.
+    # assigned unit + shortfall = actual quantity
     for req in requests:
         vars_for_req = [x[(unit["unit_id"], req["request_id"])] for unit in inventory
                          if (unit["unit_id"], req["request_id"]) in x]
