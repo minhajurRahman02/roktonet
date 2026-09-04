@@ -25,6 +25,13 @@ URGENCY_WEIGHT = {
     "urgent": 100,
     "routine": 10,
     "elective": 1,
+    "restock": 0.5,  # lowest priority -- a blood bank topping up its own
+                     # stock never outweighs any patient-facing request,
+                     # and only ever consumes genuine surplus. See
+                     # dashboard_specification.md Section 4 for the full
+                     # reasoning -- this single line is the entire change
+                     # needed, since the shortfall-weighted objective
+                     # below already guarantees the priority ordering.
 }
 
 # Cost added per unit sourced from a different district than the requester.
@@ -65,7 +72,8 @@ def allocate(requests: list[dict], inventory: list[dict], organizations: dict) -
                 )
 
     shortfall = {
-        req["request_id"]: pulp.LpVariable(f"shortfall_{req['request_id']}", lowBound=0)
+        req["request_id"]: pulp.LpVariable(
+            f"shortfall_{req['request_id']}", lowBound=0)
         for req in requests
     }
 
@@ -87,32 +95,39 @@ def allocate(requests: list[dict], inventory: list[dict], organizations: dict) -
     # --- Objective ---
     expiry_cost = {u["unit_id"]: u["days_until_expiry"] for u in inventory}
     unit_org = {u["unit_id"]: u["org_id"] for u in inventory}
-    req_district = {r["request_id"]: organizations[r["org_id"]] for r in requests}
-    unit_district = {u["unit_id"]: organizations[u["org_id"]] for u in inventory}
+    req_district = {r["request_id"]: organizations[r["org_id"]]
+                    for r in requests}
+    unit_district = {u["unit_id"]: organizations[u["org_id"]]
+                     for u in inventory}
 
     def distance_cost(unit_id, request_id):
         return 0 if unit_district[unit_id] == req_district[request_id] else DIFFERENT_DISTRICT_PENALTY
 
     prob += (
-        pulp.lpSum(URGENCY_WEIGHT[req["urgency_tier"]] * shortfall[req["request_id"]] for req in requests)
-        + DISTANCE_WEIGHT * pulp.lpSum(distance_cost(uid, rid) * var for (uid, rid), var in x.items())
+        pulp.lpSum(URGENCY_WEIGHT[req["urgency_tier"]] *
+                   shortfall[req["request_id"]] for req in requests)
+        + DISTANCE_WEIGHT *
+        pulp.lpSum(distance_cost(uid, rid) *
+                   var for (uid, rid), var in x.items())
         - FAIRNESS_REWARD * pulp.lpSum(used.values())
-        + EXPIRY_TIE_BREAK_WEIGHT * pulp.lpSum(expiry_cost[uid] * var for (uid, rid), var in x.items())
+        + EXPIRY_TIE_BREAK_WEIGHT *
+        pulp.lpSum(expiry_cost[uid] * var for (uid, rid), var in x.items())
     )
 
-    # constraints: 
+    # constraints:
     # each inventory unit assigned to at most one request
     for unit in inventory:
         vars_for_unit = [x[(unit["unit_id"], req["request_id"])] for req in requests
-                          if (unit["unit_id"], req["request_id"]) in x]
+                         if (unit["unit_id"], req["request_id"]) in x]
         if vars_for_unit:
             prob += pulp.lpSum(vars_for_unit) <= 1
 
     # assigned unit + shortfall = actual quantity
     for req in requests:
         vars_for_req = [x[(unit["unit_id"], req["request_id"])] for unit in inventory
-                         if (unit["unit_id"], req["request_id"]) in x]
-        prob += pulp.lpSum(vars_for_req) + shortfall[req["request_id"]] == req["quantity"]
+                        if (unit["unit_id"], req["request_id"]) in x]
+        prob += pulp.lpSum(vars_for_req) + \
+            shortfall[req["request_id"]] == req["quantity"]
 
     # Fairness link: an org's "used" flag can only be 1 if it actually
     # contributed >=1 unit to that request. See explanation in chat --
@@ -132,6 +147,7 @@ def allocate(requests: list[dict], inventory: list[dict], organizations: dict) -
         for (uid, rid), var in x.items()
         if var.value() == 1
     ]
-    shortfalls = {rid: int(var.value()) for rid, var in shortfall.items() if var.value() > 0}
+    shortfalls = {rid: int(var.value())
+                  for rid, var in shortfall.items() if var.value() > 0}
 
     return {"assignments": assignments, "shortfalls": shortfalls, "status": pulp.LpStatus[prob.status]}

@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ShieldOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
-const ROLE_HOME = { admin: '/admin', hospital: '/hospital', bank: '/hospital', ngo: '/hospital', donor: '/hospital' };
+import { ROLE_HOME } from '../constants/roleHome';
 
 export default function Unauthorized() {
   const { user } = useAuth();

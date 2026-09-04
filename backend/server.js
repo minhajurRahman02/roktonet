@@ -27,6 +27,7 @@ app.use('/api/mobilizations', require('./routes/mobilizations'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/locations', require('./routes/locations'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/allocations', require('./routes/allocations'));
 
 // Simple proof-of-life route: if this works, Node is successfully
 // talking to your Postgres database.

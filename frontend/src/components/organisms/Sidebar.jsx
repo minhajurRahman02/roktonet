@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -13,11 +13,16 @@ const NAV_BY_ROLE = {
     { to: '/hospital/requests', label: 'My Requests', icon: ListChecks },
   ],
   admin: [{ to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true }],
-  // bank/ngo/donor don't have real dashboards yet (Phase 7.8) -- they
-  // currently land in the shared hospital shell as a placeholder, so give
-  // them a minimal, honest nav rather than pretending they have Hospital's
+  bank: [
+    { to: '/blood-bank', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/blood-bank/inventory', label: 'My Inventory', icon: Droplets },
+    { to: '/blood-bank/allocations', label: 'Outgoing Allocations', icon: Truck },
+    { to: '/blood-bank/restock', label: 'Restock', icon: RefreshCw },
+  ],
+  // ngo/donor don't have real dashboards yet (Phase 7.8) -- they currently
+  // land in the shared hospital shell as a placeholder, so give them a
+  // minimal, honest nav rather than pretending they have Hospital's
   // features.
-  bank: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
   ngo: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
   donor: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
 };
@@ -40,7 +45,13 @@ export default function Sidebar({ collapsed, onToggleCollapsed }) {
       </button>
 
       <div className="overflow-hidden h-full flex flex-col p-3">
-        <div className="h-8 mb-6 flex items-center">
+        <div className="h-8 mb-6 flex items-center gap-2">
+          {/* Placeholder mark -- swap for the real RoktoNet logo when it
+              exists. A simple droplet keeps the sidebar from looking
+              unfinished in the meantime without pretending to be final. */}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#A9382F" className="shrink-0" aria-hidden="true">
+            <path d="M12 2C12 2 5 11.5 5 16a7 7 0 0 0 14 0c0-4.5-7-14-7-14z" />
+          </svg>
           <span
             className={`font-display font-semibold text-lg whitespace-nowrap transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0' : 'opacity-100'}`}
           >

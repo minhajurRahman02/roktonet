@@ -66,7 +66,16 @@ export default function TopBar({ breadcrumbs }) {
 
   async function handleLogout() {
     await logout();
-    navigate('/login');
+    // A hard navigation, not react-router's navigate(). Clearing the user
+    // above can itself trigger ProtectedRoute's own redirect-to-login
+    // (since we're still mounted on a now-unauthenticated protected page
+    // for a moment), which races against this call and can leave a stale
+    // location.state.from pointing at whatever page we just logged out
+    // of. The next person to log in -- possibly a completely different
+    // role -- would then get sent straight at that stale destination
+    // instead of their own dashboard. A full page load wipes all router
+    // state outright, so there's nothing left to race.
+    window.location.href = '/login';
   }
 
   function handleNotificationClick(notification) {

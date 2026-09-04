@@ -5,14 +5,20 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { notifyOrg } = require('../services/notificationService');
 const { logRequestEvent } = require('../services/requestEvents');
 
-// GET /api/inventory - list inventory, filterable by org, blood_type, component
-// Example: /api/inventory?org_id=xxx&component=whole_blood
-router.get('/', async (req, res) => {
-  const { org_id, blood_type, component } = req.query;
+// GET /api/inventory - list inventory, filterable by blood_type, component.
+// Auto-scoped to the caller's own org for bank/ngo, same pattern as
+// GET /api/requests for hospital -- previously had no auth at all, which
+// meant any org's org_id could be passed in the query string to see
+// another bank's full stock. Admin can pass org_id explicitly to view any
+// org's inventory.
+router.get('/', requireAuth, async (req, res) => {
+  const { blood_type, component } = req.query;
+  let { org_id } = req.query;
 
-  // Build the WHERE clause dynamically based on which filters were passed.
-  // $1, $2, $3 are placeholders -- pg fills these in safely, which prevents
-  // SQL injection (never build a query by directly pasting user input into it).
+  if (req.user.role !== 'admin') {
+    org_id = req.user.org_id;
+  }
+
   const conditions = [];
   const values = [];
 

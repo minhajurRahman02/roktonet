@@ -6,13 +6,12 @@ const { runAllocationBatch } = require('../services/engineClient');
 const { logRequestEvent } = require('../services/requestEvents');
 const { notifyOrg } = require('../services/notificationService');
 
-// POST /api/requests - submit a new blood request
-// Role-gated (Phase 7.7 -- closes a real security gap flagged during
-// dashboard planning: this endpoint previously had NO role restriction at
-// all). Hospital submits for their own org only; Admin can submit for any
-// org. Blood bank/NGO/donor rejected here for now -- blood bank's
-// "restock" submission is Phase 7.8 work, not yet wired up.
-router.post('/', requireAuth, requireRole('hospital', 'admin'), async (req, res) => {
+// POST /api/requests - submit a new blood request.
+// Hospital submits for their own org, any urgency except restock (that's
+// a blood-bank-only concept). Blood bank submits for their own org,
+// restock ONLY -- a bank has no business filing a critical patient
+// request. Admin can submit anything for any org.
+router.post('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (req, res) => {
   const { org_id, blood_type, component, quantity, urgency_tier, needed_by_date } = req.body;
 
   if (!org_id || !blood_type || !component || !quantity || !urgency_tier) {
@@ -21,11 +20,18 @@ router.post('/', requireAuth, requireRole('hospital', 'admin'), async (req, res)
     });
   }
 
-  if (req.user.role === 'hospital' && org_id !== req.user.org_id) {
-    return res.status(403).json({ error: 'Hospitals may only submit requests for their own organization' });
+  if (req.user.role !== 'admin' && org_id !== req.user.org_id) {
+    return res.status(403).json({ error: 'You may only submit requests for your own organization' });
   }
 
-  const ALLOWED_URGENCY = ['critical', 'urgent', 'routine', 'elective'];
+  if (req.user.role === 'hospital' && urgency_tier === 'restock') {
+    return res.status(403).json({ error: "'restock' is a blood-bank-only urgency tier" });
+  }
+  if (req.user.role === 'bank' && urgency_tier !== 'restock') {
+    return res.status(403).json({ error: "Blood banks may only submit 'restock' requests" });
+  }
+
+  const ALLOWED_URGENCY = ['critical', 'urgent', 'routine', 'elective', 'restock'];
   if (!ALLOWED_URGENCY.includes(urgency_tier)) {
     return res.status(400).json({ error: `urgency_tier must be one of: ${ALLOWED_URGENCY.join(', ')}` });
   }
@@ -82,11 +88,14 @@ router.post('/', requireAuth, requireRole('hospital', 'admin'), async (req, res)
 });
 
 // GET /api/requests - list + filter (Phase 7.7)
-router.get('/', requireAuth, requireRole('hospital', 'admin'), async (req, res) => {
+router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (req, res) => {
   const { urgency_tier, fulfillment_path } = req.query;
   let { org_id } = req.query;
 
-  if (req.user.role === 'hospital') {
+  // Both hospital and bank users are auto-scoped to their own org -- a
+  // bank's restock requests live in this same table, so it needs the
+  // same self-scoping hospital already has, not a separate endpoint.
+  if (req.user.role === 'hospital' || req.user.role === 'bank') {
     org_id = req.user.org_id;
   }
 
