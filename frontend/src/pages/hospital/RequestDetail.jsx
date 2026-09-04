@@ -1,34 +1,57 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { Phone, Mail, MapPin, Droplet } from 'lucide-react';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import UrgencyBadge from '../../components/atoms/UrgencyBadge';
 import Button from '../../components/atoms/Button';
 import RequestTrackingModal from '../../components/organisms/RequestTrackingModal';
-import { getRequest } from '../../api/requests';
+import { getRequest, getAllocation, confirmDelivery } from '../../api/requests';
 import { getMobilizationsForRequest } from '../../api/mobilizations';
 import { relativeTime } from '../../utils/relativeTime';
 
 const FALLBACK_PATHS = ['donor_fallback', 'parallel_critical', 'scheduled_donor_mobilization'];
+const INVENTORY_PATHS = ['inventory', 'restock'];
 const BORDER_COLOR = { critical: '#A9382F', urgent: '#B8811F', routine: '#5B7A8C', elective: '#6B9080' };
+
+// Groups flat per-unit allocation rows into one entry per source org, since
+// delivery is confirmed per-org (a request can be fulfilled by multiple
+// banks/NGOs arriving separately) rather than all at once.
+function groupByOrg(allocation) {
+  const groups = new Map();
+  for (const row of allocation) {
+    if (!groups.has(row.org_id)) {
+      groups.set(row.org_id, { org_id: row.org_id, org_name: row.org_name, district: row.district, units: [] });
+    }
+    groups.get(row.org_id).units.push(row);
+  }
+  return Array.from(groups.values());
+}
 
 export default function RequestDetail() {
   const { id } = useParams();
   const [status, setStatus] = useState('loading');
   const [request, setRequest] = useState(null);
   const [mobilizations, setMobilizations] = useState([]);
+  const [allocation, setAllocation] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [trackingOpen, setTrackingOpen] = useState(false);
+  const [confirmingOrgId, setConfirmingOrgId] = useState(null);
+  const [confirmError, setConfirmError] = useState('');
 
   const load = useCallback(() => {
     setStatus('loading');
     getRequest(id)
       .then((data) => {
         setRequest(data);
+        const tasks = [];
         if (FALLBACK_PATHS.includes(data.fulfillment_path)) {
-          return getMobilizationsForRequest(id).then(setMobilizations);
+          tasks.push(getMobilizationsForRequest(id).then(setMobilizations));
         }
-        return null;
+        if (INVENTORY_PATHS.includes(data.fulfillment_path)) {
+          tasks.push(getAllocation(id).then(setAllocation));
+        }
+        return Promise.all(tasks);
       })
       .then(() => setStatus('success'))
       .catch((err) => {
@@ -40,6 +63,20 @@ export default function RequestDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleConfirmArrival(orgId) {
+    setConfirmingOrgId(orgId);
+    setConfirmError('');
+    try {
+      await confirmDelivery(request.request_id, orgId);
+      const updated = await getAllocation(request.request_id);
+      setAllocation(updated);
+    } catch (err) {
+      setConfirmError(err.message);
+    } finally {
+      setConfirmingOrgId(null);
+    }
+  }
 
   if (status === 'loading') {
     return (
@@ -58,8 +95,10 @@ export default function RequestDetail() {
   }
 
   const isResolved = !!request.fulfillment_path;
-  const confirmedCount = mobilizations.filter((m) => m.invite_status === 'confirmed').length;
+  const confirmedDonors = mobilizations.filter((m) => m.invite_status === 'confirmed');
   const pendingCount = mobilizations.filter((m) => m.invite_status === 'invited').length;
+  const declinedCount = mobilizations.filter((m) => m.invite_status === 'declined').length;
+  const orgGroups = groupByOrg(allocation);
 
   return (
     <div className="p-6">
@@ -108,21 +147,114 @@ export default function RequestDetail() {
           </div>
         )}
 
+        {/* Per-org dispatch/delivery status -- one row per source org, since
+            delivery is confirmed per-org, not for the whole request at once. */}
+        {INVENTORY_PATHS.includes(request.fulfillment_path) && orgGroups.length > 0 && (
+          <div className="border-t border-gray-100 dark:border-white/10 p-5">
+            <p className="text-sm font-medium mb-3 dark:text-textprimary-dark">Delivery status</p>
+            <div className="space-y-3">
+              {orgGroups.map((group) => {
+                const allDelivered = group.units.every((u) => u.status === 'delivered');
+                const anyDispatched = group.units.some((u) => u.status === 'dispatched');
+
+                return (
+                  <div
+                    key={group.org_id}
+                    className="flex items-center justify-between border border-gray-100 dark:border-white/10 rounded-lg px-3 py-2.5"
+                  >
+                    <div>
+                      <p className="text-sm font-medium dark:text-textprimary-dark">{group.org_name}</p>
+                      <p className="text-xs text-gray-400">
+                        {group.district} · {group.units.length} unit{group.units.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+
+                    {allDelivered ? (
+                      <span className="text-xs font-medium text-elective-text dark:text-elective-dtext bg-elective-bg dark:bg-elective-dbg px-2.5 py-1 rounded-full">
+                        Delivered
+                      </span>
+                    ) : anyDispatched ? (
+                      <Button
+                        variant="primary"
+                        loading={confirmingOrgId === group.org_id}
+                        onClick={() => handleConfirmArrival(group.org_id)}
+                      >
+                        Mark arrived
+                      </Button>
+                    ) : (
+                      <span className="text-xs font-medium text-gray-500 dark:text-textsecondary-dark bg-gray-100 dark:bg-white/5 px-2.5 py-1 rounded-full">
+                        Awaiting dispatch
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {confirmError && (
+              <p className="text-xs text-critical-text dark:text-critical-dtext mt-2">{confirmError}</p>
+            )}
+          </div>
+        )}
+
         {FALLBACK_PATHS.includes(request.fulfillment_path) && (
           <div className="border-t border-gray-100 dark:border-white/10 p-5">
             <p className="text-sm font-medium mb-2 dark:text-textprimary-dark">Donor outreach (fallback triggered)</p>
             {mobilizations.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-textsecondary-dark">No donors invited yet.</p>
             ) : (
-              <div className="flex gap-4 text-sm">
-                <span className="text-gray-600 dark:text-textsecondary-dark">{mobilizations.length} donors invited</span>
-                <span className="text-elective-text dark:text-elective-dtext">{confirmedCount} confirmed</span>
-                <span className="text-gray-400">{pendingCount} pending</span>
-              </div>
+              <>
+                <div className="flex gap-4 text-sm mb-3">
+                  <span className="text-gray-600 dark:text-textsecondary-dark">{mobilizations.length} donors invited</span>
+                  <span className="text-elective-text dark:text-elective-dtext">{confirmedDonors.length} confirmed</span>
+                  <span className="text-gray-400">{pendingCount} pending</span>
+                  {declinedCount > 0 && <span className="text-gray-400">{declinedCount} declined</span>}
+                </div>
+
+                {/* Contact details only ever appear here for confirmed donors --
+                    the backend nulls these fields out for anyone who hasn't
+                    accepted, so there's nothing to accidentally over-render. */}
+                {confirmedDonors.length > 0 && (
+                  <div className="space-y-2 mb-2">
+                    {confirmedDonors.map((donor) => (
+                      <div
+                        key={donor.mobilization_id}
+                        className="border border-gray-100 dark:border-white/10 rounded-lg p-3 text-sm"
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="font-medium dark:text-textprimary-dark">{donor.donor_name || 'Confirmed donor'}</p>
+                          <span className="flex items-center gap-1 text-xs font-medium text-critical-text dark:text-critical-dtext">
+                            <Droplet size={12} /> {donor.donor_blood_type}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-textsecondary-dark">
+                          {donor.donor_phone && (
+                            <a href={`tel:${donor.donor_phone}`} className="flex items-center gap-1 hover:text-primary dark:hover:text-textprimary-dark">
+                              <Phone size={12} /> {donor.donor_phone}
+                            </a>
+                          )}
+                          {donor.donor_email && (
+                            <a href={`mailto:${donor.donor_email}`} className="flex items-center gap-1 hover:text-primary dark:hover:text-textprimary-dark">
+                              <Mail size={12} /> {donor.donor_email}
+                            </a>
+                          )}
+                          {(donor.donor_thana || donor.donor_district) && (
+                            <span className="flex items-center gap-1">
+                              <MapPin size={12} /> {[donor.donor_thana, donor.donor_district].filter(Boolean).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(pendingCount > 0 || declinedCount > 0) && (
+                  <p className="text-xs text-gray-400">
+                    Donor identities aren&apos;t shown until they accept an invite.
+                  </p>
+                )}
+              </>
             )}
-            <p className="text-xs text-gray-400 mt-2">
-              Donor identities aren&apos;t shown here — the system handles matching and outreach directly.
-            </p>
           </div>
         )}
       </div>

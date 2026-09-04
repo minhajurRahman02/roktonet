@@ -24,3 +24,25 @@ export function createRequest(data) {
     body: JSON.stringify(data),
   });
 }
+
+/**
+ * @returns {Promise<Array>} per-unit allocation rows (org, district, blood
+ * type, component, status) for a resolved-via-inventory request.
+ */
+export function getAllocation(requestId) {
+  return apiFetch(`/api/requests/${requestId}/allocation`);
+}
+
+/**
+ * Confirms physical receipt of one source org's dispatched units on this
+ * request. Scoped per org, not the whole request -- a request can be
+ * fulfilled by multiple banks/NGOs arriving separately.
+ * @param {string} requestId
+ * @param {string} orgId - the source org whose delivery is being confirmed
+ */
+export function confirmDelivery(requestId, orgId) {
+  return apiFetch(`/api/requests/${requestId}/confirm-delivery`, {
+    method: 'POST',
+    body: JSON.stringify({ org_id: orgId }),
+  });
+}

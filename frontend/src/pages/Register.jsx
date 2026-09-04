@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CheckCircle2 } from 'lucide-react';
@@ -6,10 +6,13 @@ import AuthLayout from '../components/organisms/AuthLayout';
 import FormField from '../components/molecules/FormField';
 import Input from '../components/atoms/Input';
 import Select from '../components/atoms/Select';
+import DatalistInput from '../components/atoms/DatalistInput';
 import Button from '../components/atoms/Button';
 import { register } from '../api/auth';
+import { getDistricts, getThanas } from '../api/locations';
 
 const ORG_ROLES = ['hospital', 'bank', 'ngo'];
+const DONOR_BLOOD_TYPES = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'];
 
 export default function Register() {
   const [form, setForm] = useState({
@@ -19,13 +22,41 @@ export default function Register() {
     confirmPassword: '',
     role: 'hospital',
     invite_code: '',
+    blood_type: '',
+    current_district: '',
+    current_thana: '',
+    phone_number: '',
   });
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null); // Success state -- Shneiderman Rule 4 (closure)
+  const [districts, setDistricts] = useState([]);
+  const [thanas, setThanas] = useState([]);
 
   const isOrgRole = ORG_ROLES.includes(form.role);
+  const isDonorRole = form.role === 'donor';
+
+  // Districts load once -- static reference data, same list regardless
+  // of role, only actually used once someone picks 'donor'.
+  useEffect(() => {
+    getDistricts()
+      .then(setDistricts)
+      .catch(() => setDistricts([])); // fails soft -- worst case, thana becomes plain free text
+  }, []);
+
+  // Cascading thana list -- only fetches once the typed district exactly
+  // matches a real one (picked from the datalist, or typed correctly),
+  // not on every keystroke while it's still being typed.
+  useEffect(() => {
+    if (!districts.includes(form.current_district)) {
+      setThanas([]);
+      return;
+    }
+    getThanas(form.current_district)
+      .then(setThanas)
+      .catch(() => setThanas([]));
+  }, [form.current_district, districts]);
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -39,6 +70,12 @@ export default function Register() {
     if (form.password.length < 8) next.password = 'Min 8 characters';
     if (form.confirmPassword !== form.password) next.confirmPassword = "Don't match";
     if (isOrgRole && !form.invite_code.trim()) next.invite_code = 'Required for this role';
+    // Matches auth.js's server-side requirement -- blood_type and
+    // current_district are what donor-fallback matching actually
+    // depends on; thana and phone stay optional (see donorFallback.js's
+    // graceful degradation to district-level matching).
+    if (isDonorRole && !form.blood_type) next.blood_type = 'Required';
+    if (isDonorRole && !form.current_district.trim()) next.current_district = 'Required';
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -56,6 +93,12 @@ export default function Register() {
         role: form.role,
         full_name: form.full_name.trim(),
         invite_code: isOrgRole ? form.invite_code.trim() : undefined,
+        ...(isDonorRole && {
+          blood_type: form.blood_type,
+          current_district: form.current_district.trim(),
+          current_thana: form.current_thana.trim() || undefined,
+          phone_number: form.phone_number.trim() || undefined,
+        }),
       });
       setSuccessMessage(result.message);
     } catch (err) {
@@ -167,6 +210,63 @@ export default function Register() {
               value={form.confirmPassword}
               onChange={(e) => updateField('confirmPassword', e.target.value)}
               error={!!errors.confirmPassword}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Blood type" htmlFor="blood_type" error={errors.blood_type}>
+            <Select
+              id="blood_type"
+              value={form.blood_type}
+              onChange={(e) => updateField('blood_type', e.target.value)}
+              error={!!errors.blood_type}
+              disabled={!isDonorRole}
+            >
+              <option value="">{isDonorRole ? 'Select…' : 'Not needed'}</option>
+              {DONOR_BLOOD_TYPES.map((bt) => (
+                <option key={bt} value={bt}>{bt}</option>
+              ))}
+            </Select>
+          </FormField>
+
+          <FormField label="Phone number" htmlFor="phone_number">
+            <Input
+              id="phone_number"
+              type="tel"
+              value={form.phone_number}
+              onChange={(e) => updateField('phone_number', e.target.value)}
+              disabled={!isDonorRole}
+              placeholder={isDonorRole ? '+8801XXXXXXXXX' : 'Not needed'}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Current district" htmlFor="current_district" error={errors.current_district}>
+            <DatalistInput
+              id="current_district"
+              value={form.current_district}
+              onChange={(e) => updateField('current_district', e.target.value)}
+              error={!!errors.current_district}
+              disabled={!isDonorRole}
+              placeholder={isDonorRole ? 'Start typing…' : 'Not needed'}
+              options={districts}
+              autoComplete="off"
+            />
+          </FormField>
+
+          <FormField label="Current thana / upazila" htmlFor="current_thana">
+            <DatalistInput
+              id="current_thana"
+              value={form.current_thana}
+              onChange={(e) => updateField('current_thana', e.target.value)}
+              disabled={!isDonorRole || !form.current_district.trim()}
+              placeholder={
+                !isDonorRole ? 'Not needed' : !form.current_district.trim() ? 'Pick a district first' : 'Start typing…'
+              }
+              options={thanas}
+              autoComplete="off"
             />
           </FormField>
         </div>

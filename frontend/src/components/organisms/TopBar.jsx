@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Sun, Moon, ChevronDown, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import { getNotifications, markNotificationRead } from '../../api/notifications';
+import { relativeTime } from '../../utils/relativeTime';
 
 const dropdownMotion = {
   initial: { opacity: 0, scale: 0.96, y: -4 },
@@ -12,6 +14,11 @@ const dropdownMotion = {
   exit: { opacity: 0, scale: 0.96, y: -4 },
   transition: { duration: 0.35 },
 };
+
+// Not tied to an open modal like the request-tracking log (which polls at
+// 2s), so this is a much lighter interval -- the bell just needs to feel
+// reasonably current in the background, not real-time.
+const POLL_INTERVAL_MS = 30000;
 
 function initials(name) {
   if (!name) return '?';
@@ -28,9 +35,24 @@ export default function TopBar({ breadcrumbs }) {
   const [isDark, setIsDark] = useDarkMode();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
   const navigate = useNavigate();
   const menuRef = useRef(null);
   const notifRef = useRef(null);
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const loadNotifications = useCallback(() => {
+    getNotifications()
+      .then(setNotifications)
+      .catch(() => { }); // fails soft -- a stale/empty bell isn't worth surfacing an error for
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
 
   // Close either dropdown when clicking anywhere outside it.
   useEffect(() => {
@@ -45,6 +67,20 @@ export default function TopBar({ breadcrumbs }) {
   async function handleLogout() {
     await logout();
     navigate('/login');
+  }
+
+  function handleNotificationClick(notification) {
+    // Optimistic -- flip it locally right away, don't wait on the network
+    // round-trip before the dot disappears.
+    setNotifications((prev) =>
+      prev.map((n) => (n.notification_id === notification.notification_id ? { ...n, is_read: true } : n))
+    );
+    markNotificationRead(notification.notification_id).catch(() => { });
+
+    if (notification.related_request_id && user?.role === 'hospital') {
+      setNotifOpen(false);
+      navigate(`/hospital/requests/${notification.related_request_id}`);
+    }
   }
 
   return (
@@ -67,8 +103,6 @@ export default function TopBar({ breadcrumbs }) {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Notifications -- placeholder until a real system exists (no
-            backend for this yet, per dashboard_specification.md). */}
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setNotifOpen((o) => !o)}
@@ -76,14 +110,33 @@ export default function TopBar({ breadcrumbs }) {
             aria-label="Notifications"
           >
             <Bell size={18} />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-critical-text dark:bg-critical-dtext" />
+            )}
           </button>
           {notifOpen && (
             <AnimatePresence>
               <motion.div
                 {...dropdownMotion}
-                className="absolute right-0 mt-2 w-56 bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-lg shadow-lg py-3 px-3 z-10 origin-top-right"
+                className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-lg shadow-lg py-2 z-10 origin-top-right"
               >
-                <p className="text-sm text-gray-400 dark:text-textsecondary-dark text-center">No new notifications</p>
+                {notifications.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-textsecondary-dark text-center py-3">
+                    No notifications
+                  </p>
+                ) : (
+                  notifications.map((n) => (
+                    <button
+                      key={n.notification_id}
+                      onClick={() => handleNotificationClick(n)}
+                      className={`w-full text-left px-3 py-2.5 text-sm border-b border-gray-50 dark:border-white/5 last:border-0 hover:bg-gray-50 dark:hover:bg-white/5 ${n.is_read ? 'text-gray-500 dark:text-textsecondary-dark' : 'text-textprimary dark:text-textprimary-dark font-medium'
+                        }`}
+                    >
+                      <p>{n.message}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{relativeTime(n.created_at)}</p>
+                    </button>
+                  ))
+                )}
               </motion.div>
             </AnimatePresence>
           )}

@@ -104,4 +104,25 @@ async function sendPasswordResetEmail(toEmail, token) {
   return sendBrevoEmail(toEmail, 'Reset your RoktoNet password', html);
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail };
+async function sendNotificationEmail(toEmail, message, requestId) {
+  const requestUrl = requestId ? frontendUrl(`/hospital/requests/${requestId}`) : frontendUrl('/hospital/requests');
+
+  const html = emailShell(`
+    <p style="font-size: 15px; color: #1A1F1C;">
+      ${message}
+    </p>
+    <a href="${requestUrl}"
+       style="display: inline-block; background: #1C4A3D; color: #ffffff; text-decoration: none;
+              padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin: 20px 0;">
+      View request
+    </a>
+    <p style="font-size: 12px; color: #9CA3AF; margin-top: 24px;">
+      This is an automated notification for a critical/urgent request. Routine and elective updates
+      are only shown in-app, not emailed.
+    </p>
+  `);
+
+  return sendBrevoEmail(toEmail, 'RoktoNet — request update', html);
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail };

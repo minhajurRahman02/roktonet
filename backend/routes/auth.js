@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth, COOKIE_NAME } = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { resolveThana } = require('../services/locationResolver');
 
 // Roles that must belong to an organization, and therefore must supply a
 // valid invite code at registration. This is what prevents someone from
@@ -17,6 +18,12 @@ const ORG_ROLES = ['hospital', 'bank', 'ngo'];
 // 'admin' is deliberately NOT registerable -- admins are created directly
 // in the database. Public admin signup would be an obvious security hole.
 const PUBLIC_ROLES = ['hospital', 'bank', 'ngo', 'donor'];
+
+// Donor registration additionally requires blood type + current location +
+// phone, and creates a linked donors row alongside the users row -- these
+// were previously completely disconnected (a donor could log in, but the
+// system had no way of knowing which donors-table row was "them").
+const DONOR_BLOOD_TYPES = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'];
 
 const BCRYPT_ROUNDS = 10;
 const TOKEN_TTL_HOURS = 24;
@@ -55,6 +62,20 @@ router.post('/register', async (req, res) => {
   if (ORG_ROLES.includes(role) && !invite_code) {
     return res.status(400).json({ error: `invite_code is required for the '${role}' role` });
   }
+  if (role === 'donor') {
+    const { blood_type, current_district, phone_number } = req.body;
+    if (!blood_type || !DONOR_BLOOD_TYPES.includes(blood_type)) {
+      return res.status(400).json({
+        error: `blood_type is required for donor registration and must be one of: ${DONOR_BLOOD_TYPES.join(', ')}`,
+      });
+    }
+    if (!current_district) {
+      return res.status(400).json({ error: 'current_district is required for donor registration' });
+    }
+    if (!phone_number) {
+      return res.status(400).json({ error: 'phone_number is required for donor registration' });
+    }
+  }
 
   try {
     // Resolve the organization from its invite code (org roles only).
@@ -84,20 +105,69 @@ router.post('/register', async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
-    const result = await pool.query(
-      `INSERT INTO users (org_id, role, email, password_hash, full_name, verification_token, token_expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING user_id, email, role, org_id, is_verified, created_at`,
-      [
-        orgId,
-        role,
-        email.toLowerCase(),
-        passwordHash,
-        full_name || null,
-        verificationToken,
-        expiresAt,
-      ]
-    );
+    let newUser;
+
+    if (role === 'donor') {
+      // Donor registration writes to two tables (users + donors) that must
+      // succeed together or not at all -- without a transaction, a donors
+      // insert failure after the users insert already committed would
+      // leave an orphaned login with no donor record behind it, silently
+      // recreating the exact users<->donors disconnect this was meant to fix.
+      const { blood_type, current_district, current_thana, phone_number } = req.body;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const userResult = await client.query(
+          `INSERT INTO users (org_id, role, email, password_hash, full_name, verification_token, token_expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING user_id, email, role, org_id, is_verified, created_at`,
+          [null, role, email.toLowerCase(), passwordHash, full_name || null, verificationToken, expiresAt]
+        );
+        newUser = userResult.rows[0];
+
+        // Tier 2 fuzzy resolution against the canonical thana list, scoped
+        // to the district already selected. A miss (typo too severe, or a
+        // neighborhood name rather than a real thana -- see
+        // locationResolver.js's documented limitation) leaves thana_id
+        // NULL rather than guessing; donor-fallback matching then
+        // gracefully degrades to district-level for this donor.
+        let thanaId = null;
+        if (current_thana) {
+          const resolved = await resolveThana(current_thana, current_district);
+          thanaId = resolved ? resolved.thana_id : null;
+        }
+
+        await client.query(
+          `INSERT INTO donors (user_id, blood_type, current_district, current_thana, current_thana_id, phone_number, eligibility_status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'eligible')`,
+          [newUser.user_id, blood_type, current_district, current_thana || null, thanaId, phone_number]
+        );
+
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    } else {
+      const result = await pool.query(
+        `INSERT INTO users (org_id, role, email, password_hash, full_name, verification_token, token_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING user_id, email, role, org_id, is_verified, created_at`,
+        [
+          orgId,
+          role,
+          email.toLowerCase(),
+          passwordHash,
+          full_name || null,
+          verificationToken,
+          expiresAt,
+        ]
+      );
+      newUser = result.rows[0];
+    }
 
     // Phase 7.2: real email delivery via Resend, replacing the 7.1
     // dev_verification_token workaround. If email sending fails, the
@@ -108,7 +178,7 @@ router.post('/register', async (req, res) => {
     } catch (emailErr) {
       console.error('[auth] verification email failed to send:', emailErr.message);
       return res.status(201).json({
-        user: result.rows[0],
+        user: newUser,
         message:
           'Account created, but the verification email could not be sent. Please contact support or try registering again.',
         email_delivery_failed: true,
@@ -116,7 +186,7 @@ router.post('/register', async (req, res) => {
     }
 
     res.status(201).json({
-      user: result.rows[0],
+      user: newUser,
       message: 'Registered. Check your email to verify your account.',
     });
   } catch (err) {

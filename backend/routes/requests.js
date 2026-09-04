@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { runAllocationBatch } = require('../services/engineClient');
 const { logRequestEvent } = require('../services/requestEvents');
+const { notifyOrg } = require('../services/notificationService');
 
 // POST /api/requests - submit a new blood request
 // Role-gated (Phase 7.7 -- closes a real security gap flagged during
@@ -153,8 +154,9 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // GET /api/requests/:id/allocation - which real org(s)/unit(s) fulfilled
 // this request, if resolved via inventory. Ownership-checked like /:id.
-// This is the endpoint flagged as missing entirely in dashboard_specification.md
-// Section 5 -- allocation_records had no dedicated route before this.
+// Now also returns each unit's status (reserved/dispatched/delivered) --
+// added for the fulfillment/delivery workflow, so the frontend can group
+// by org and show per-org delivery state without a second endpoint.
 router.get('/:id/allocation', requireAuth, async (req, res) => {
   try {
     const requestResult = await pool.query('SELECT org_id FROM requests WHERE request_id = $1', [
@@ -171,7 +173,7 @@ router.get('/:id/allocation', requireAuth, async (req, res) => {
     }
 
     const allocationResult = await pool.query(
-      `SELECT ar.unit_id, iu.org_id, o.name AS org_name, o.district, iu.blood_type, iu.component
+      `SELECT ar.unit_id, iu.org_id, o.name AS org_name, o.district, iu.blood_type, iu.component, iu.status
        FROM allocation_records ar
        JOIN inventory_units iu ON iu.unit_id = ar.unit_id
        JOIN organizations o ON o.org_id = iu.org_id
@@ -179,6 +181,74 @@ router.get('/:id/allocation', requireAuth, async (req, res) => {
       [req.params.id]
     );
     res.json(allocationResult.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/requests/:id/confirm-delivery - hospital confirms physical
+// arrival of the units dispatched by ONE specific source org. Scoped per
+// org (not the whole request at once), since a request can be fulfilled
+// by multiple banks/NGOs arriving separately -- each gets its own
+// confirmation. Only units already 'dispatched' for that org are moved to
+// 'delivered'; anything still 'reserved' (not yet dispatched by that org)
+// is left untouched.
+router.post('/:id/confirm-delivery', requireAuth, requireRole('hospital', 'admin'), async (req, res) => {
+  const { org_id } = req.body;
+  if (!org_id) {
+    return res.status(400).json({ error: 'org_id (the source org whose delivery you are confirming) is required' });
+  }
+
+  try {
+    const requestResult = await pool.query('SELECT org_id, urgency_tier FROM requests WHERE request_id = $1', [
+      req.params.id,
+    ]);
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    const request = requestResult.rows[0];
+
+    const isOwner = req.user.org_id === request.org_id;
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'You do not have access to this request' });
+    }
+
+    const updateResult = await pool.query(
+      `UPDATE inventory_units iu
+       SET status = 'delivered'
+       FROM allocation_records ar
+       WHERE ar.unit_id = iu.unit_id
+         AND ar.request_id = $1
+         AND iu.org_id = $2
+         AND iu.status = 'dispatched'
+       RETURNING iu.unit_id`,
+      [req.params.id, org_id]
+    );
+
+    if (updateResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'No dispatched units found for that organization on this request -- nothing to confirm',
+      });
+    }
+
+    await logRequestEvent(
+      req.params.id,
+      'delivery_confirmed',
+      `Hospital confirmed receipt of ${updateResult.rows.length} unit(s)`,
+      { unit_count: updateResult.rows.length, org_id }
+    );
+
+    await notifyOrg(
+      org_id,
+      'delivery_confirmed',
+      'The hospital has confirmed receipt of your dispatched unit(s).',
+      req.params.id,
+      request.urgency_tier
+    );
+
+    res.json({ request_id: req.params.id, org_id, delivered_units: updateResult.rows.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
