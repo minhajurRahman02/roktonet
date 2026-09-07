@@ -4,6 +4,7 @@
 
 const pool = require('../db');
 const { logRequestEvent } = require('./requestEvents');
+const { ELIGIBILITY_COOLDOWN_DAYS } = require('./eligibility');
 
 const MAX_DONORS_PER_INVITE = 5;
 
@@ -42,37 +43,30 @@ async function triggerDonorFallback(request) {
   );
   const excludeIds = alreadyInvited.rows.map((r) => r.donor_id);
 
-  // The requesting org's own location -- what donor proximity is measured
-  // against. If the org hasn't set a thana (older orgs, pre-migration),
-  // orgDistrict/orgThanaId are simply null and every donor falls to
-  // location_rank 2 below -- same eligible/compatible pool as before this
-  // feature existed, just no longer silently ignoring location where it
-  // IS available.
   const orgResult = await pool.query(
     'SELECT district, thana_id FROM organizations WHERE org_id = $1',
     [request.org_id]
   );
   const org = orgResult.rows[0] || {};
 
-  // Ranks, doesn't filter -- a same-thana donor is preferred over a
-  // same-district donor over an unknown/far one, but nobody eligible and
-  // compatible is ever excluded outright. Excluding on distance risks
-  // turning up zero candidates for a critical request just because
-  // nobody nearby happens to be in the table yet; ranking never does.
+  const cooldownDays = ELIGIBILITY_COOLDOWN_DAYS[request.component] || ELIGIBILITY_COOLDOWN_DAYS.whole_blood;
+  const eligibleCutoff = new Date();
+  eligibleCutoff.setDate(eligibleCutoff.getDate() - cooldownDays);
+
   const donorsResult = await pool.query(
     `SELECT donor_id,
        CASE
-         WHEN current_thana_id IS NOT NULL AND current_thana_id = $4 THEN 0
-         WHEN current_district IS NOT NULL AND current_district = $5 THEN 1
+         WHEN current_thana_id IS NOT NULL AND current_thana_id = $5 THEN 0
+         WHEN current_district IS NOT NULL AND current_district = $6 THEN 1
          ELSE 2
        END AS location_rank
      FROM donors
-     WHERE eligibility_status = 'eligible'
+     WHERE (last_donation_date IS NULL OR last_donation_date <= $4)
        AND blood_type = ANY($1)
        AND donor_id != ALL($2)
      ORDER BY location_rank ASC
      LIMIT $3`,
-    [compatibleTypes, excludeIds, MAX_DONORS_PER_INVITE, org.thana_id || null, org.district || null]
+    [compatibleTypes, excludeIds, MAX_DONORS_PER_INVITE, eligibleCutoff, org.thana_id || null, org.district || null]
   );
 
   for (const donor of donorsResult.rows) {
@@ -82,8 +76,6 @@ async function triggerDonorFallback(request) {
     );
   }
 
-  // Section 7A: critical = parallel (donor search alongside inventory),
-  // urgent/routine = sequential fallback (only after inventory came up short).
   const fulfillmentPath = request.urgency_tier === 'critical' ? 'parallel_critical' : 'donor_fallback';
 
   await pool.query('UPDATE requests SET fulfillment_path = $1 WHERE request_id = $2', [
@@ -91,10 +83,6 @@ async function triggerDonorFallback(request) {
     request.request_id,
   ]);
 
-  // Real event log entries -- the search-triggered message reflects the
-  // ACTUAL Section 7A branching logic (parallel vs sequential), and the
-  // invited count and location breakdown are the REAL numbers just
-  // computed above, not a guess or a fabricated narrative.
   const searchMessage =
     request.urgency_tier === 'critical'
       ? 'Critical priority — searching for compatible donors in parallel with inventory'
@@ -124,10 +112,6 @@ async function triggerDonorFallback(request) {
   return { request_id: request.request_id, invited: donorsResult.rows.length, fulfillment_path: fulfillmentPath };
 }
 
-// Escalation: finds requests where every invited donor has declined (none
-// still pending, none confirmed) and invites a fresh batch from whoever's
-// left in the compatible/eligible pool. This is what prevents a request
-// from dead-ending after one round of invites all get declined.
 async function escalateStaleMobilizations() {
   const staleResult = await pool.query(`
     SELECT r.request_id, r.org_id, r.blood_type, r.component, r.urgency_tier
@@ -141,9 +125,6 @@ async function escalateStaleMobilizations() {
 
   const results = [];
   for (const request of staleResult.rows) {
-    // Logged BEFORE delegating to triggerDonorFallback, which will log its
-    // own (accurate) search/invite events for this new round -- this just
-    // adds the "why are we doing this again" context on top.
     await logRequestEvent(
       request.request_id,
       'escalation_triggered',

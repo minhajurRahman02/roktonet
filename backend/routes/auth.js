@@ -139,9 +139,9 @@ router.post('/register', async (req, res) => {
         }
 
         await client.query(
-          `INSERT INTO donors (user_id, blood_type, current_district, current_thana, current_thana_id, phone_number, eligibility_status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'eligible')`,
-          [newUser.user_id, blood_type, current_district, current_thana || null, thanaId, phone_number]
+          `INSERT INTO donors (user_id, full_name, blood_type, current_district, current_thana, current_thana_id, phone_number, eligibility_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'eligible')`,
+          [newUser.user_id, full_name || null, blood_type, current_district, current_thana || null, thanaId, phone_number]
         );
 
         await client.query('COMMIT');

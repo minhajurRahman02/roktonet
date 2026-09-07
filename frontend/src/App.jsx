@@ -15,6 +15,16 @@ import OutgoingAllocations from './pages/blood-bank/OutgoingAllocations';
 import Restock from './pages/blood-bank/Restock';
 import NewRestockRequest from './pages/blood-bank/NewRestockRequest';
 import RestockDetail from './pages/blood-bank/RestockDetail';
+import NgoOverview from './pages/ngo/Overview';
+import MyDonors from './pages/ngo/MyDonors';
+import RegisterDonor from './pages/ngo/RegisterDonor';
+import DonorDetail from './pages/ngo/DonorDetail';
+import LogUnit from './pages/ngo/LogUnit';
+import MyDrives from './pages/ngo/MyDrives';
+import NewDrive from './pages/ngo/NewDrive';
+import DriveDetail from './pages/ngo/DriveDetail';
+import DriveLog from './pages/ngo/DriveLog';
+import NgoMobilizations from './pages/ngo/Mobilizations';
 import AdminDashboard from './pages/AdminDashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -24,10 +34,10 @@ import ResetPassword from './pages/ResetPassword';
 import Unauthorized from './pages/Unauthorized';
 
 // Roles still waiting on their own dashboard (Phase 7.8) land in the
-// shared hospital shell as a placeholder. Bank graduated out of this list
-// now that it has a real dashboard -- ngo/donor remain here until theirs
-// are built.
-const HOSPITAL_SHELL_ROLES = ['hospital', 'ngo', 'donor'];
+// shared hospital shell as a placeholder. Bank and NGO have both
+// graduated out of this list now -- donor remains until its dashboard
+// is built.
+const HOSPITAL_SHELL_ROLES = ['hospital', 'donor'];
 
 export default function App() {
   return (
@@ -182,6 +192,128 @@ export default function App() {
                 <RoleRoute allowedRoles={['bank']}>
                   <AppShell crumbs={['Blood Bank', 'Restock', 'Detail']}>
                     <RestockDetail />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* NGO -- real dashboard (Phase 7.8). */}
+          <Route
+            path="/ngo"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'Overview']}>
+                    <NgoOverview />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/donors"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Donors']}>
+                    <MyDonors />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/donors/register"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Donors', 'Register']}>
+                    <RegisterDonor />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/donors/:id"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Donors', 'Detail']}>
+                    <DonorDetail />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/drives"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Blood Drives']}>
+                    <MyDrives />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/drives/new"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Blood Drives', 'Create']}>
+                    <NewDrive />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/drives/:id"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Blood Drives', 'Detail']}>
+                    <DriveDetail />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/drives/:driveId/log-unit/:donorId"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Blood Drives', 'Log Unit']}>
+                    <LogUnit />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/drives/:id/log"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Blood Drives', 'Log']}>
+                    <DriveLog />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/mobilizations"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'Mobilizations']}>
+                    <NgoMobilizations />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

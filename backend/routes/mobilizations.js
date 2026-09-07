@@ -1,9 +1,42 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const { logRequestEvent } = require('../services/requestEvents');
 const { notifyOrg } = require('../services/notificationService');
+
+// GET /api/mobilizations - all mobilizations involving the caller's OWN
+// donors (i.e. donors whose donor.org_id matches this NGO), across every
+// request -- not the single-request lookup below. Powers the NGO's
+// Active Mobilizations page ("what are our donors currently being asked
+// to do"). Deliberately does NOT reveal donor contact details here, even
+// for confirmed invites -- unlike the hospital-facing per-request lookup,
+// this is the NGO looking at its own roster's activity, which it already
+// has full access to via GET /api/donors; this endpoint is about the
+// mobilization/request side, not a second donor-contact-reveal surface.
+router.get('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
+  let orgId = req.user.org_id;
+  if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
+              d.full_name AS donor_name, d.blood_type AS donor_blood_type,
+              r.request_id, r.urgency_tier, o.name AS requesting_org_name
+       FROM donor_mobilizations dm
+       JOIN donors d ON d.donor_id = dm.donor_id
+       JOIN requests r ON r.request_id = dm.request_id
+       JOIN organizations o ON o.org_id = r.org_id
+       WHERE d.org_id = $1
+       ORDER BY dm.mobilization_id DESC`,
+      [orgId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/mobilizations/:requestId - see which donors were invited for a
 // request. Previously had NO authentication at all -- fixed this session,

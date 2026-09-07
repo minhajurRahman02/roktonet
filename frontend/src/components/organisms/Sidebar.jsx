@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -23,7 +23,14 @@ const NAV_BY_ROLE = {
   // land in the shared hospital shell as a placeholder, so give them a
   // minimal, honest nav rather than pretending they have Hospital's
   // features.
-  ngo: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
+  ngo: [
+    { to: '/ngo', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/ngo/donors', label: 'My Donors', icon: Users },
+    { to: '/ngo/drives', label: 'My Blood Drives', icon: Heart },
+    { to: '/ngo/mobilizations', label: 'Mobilizations', icon: Truck },
+  ],
+  // donor doesn't have a real dashboard yet (Phase 7.8) -- lands in the
+  // shared hospital shell as a placeholder.
   donor: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
 };
 
@@ -66,8 +73,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed }) {
               to={to}
               end={end}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white hover:bg-white/5'
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white hover:bg-white/5'
                 }`
               }
               title={collapsed ? label : undefined}

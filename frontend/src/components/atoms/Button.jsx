@@ -7,6 +7,11 @@ const VARIANT_CLASSES = {
     'bg-white dark:bg-surface-dark text-primary dark:text-textprimary-dark border border-gray-300 dark:border-white/10 hover:border-primary disabled:opacity-50',
   ghost:
     'text-gray-500 dark:text-textsecondary-dark hover:bg-gray-100 dark:hover:bg-white/5 disabled:opacity-50',
+  // For a genuinely destructive/urgent one-off action (e.g. finishing a
+  // live drive session) -- reuses the existing critical urgency tokens
+  // rather than inventing a new color, so it reads consistently with
+  // everywhere else "critical" already means something in this app.
+  critical: 'bg-critical-text text-white hover:opacity-90 disabled:bg-gray-300 dark:disabled:bg-gray-700',
 };
 
 /**
@@ -28,7 +33,7 @@ export default function Button({ variant = 'primary', loading = false, disabled,
 }
 
 Button.propTypes = {
-  variant: PropTypes.oneOf(['primary', 'secondary', 'ghost']),
+  variant: PropTypes.oneOf(['primary', 'secondary', 'ghost', 'critical']),
   loading: PropTypes.bool,
   disabled: PropTypes.bool,
   children: PropTypes.node.isRequired,
