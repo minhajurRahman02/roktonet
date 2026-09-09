@@ -23,6 +23,7 @@ export default function Register() {
     role: 'hospital',
     invite_code: '',
     blood_type: '',
+    sex: '',
     current_district: '',
     current_thana: '',
     phone_number: '',
@@ -75,6 +76,10 @@ export default function Register() {
     // depends on; thana and phone stay optional (see donorFallback.js's
     // graceful degradation to district-level matching).
     if (isDonorRole && !form.blood_type) next.blood_type = 'Required';
+    // Required because whole blood's eligibility cooldown genuinely
+    // differs by sex (see backend/services/eligibility.js for the full
+    // sourcing) -- framed strictly for donation-eligibility computation.
+    if (isDonorRole && !form.sex) next.sex = 'Required';
     if (isDonorRole && !form.current_district.trim()) next.current_district = 'Required';
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -95,6 +100,7 @@ export default function Register() {
         invite_code: isOrgRole ? form.invite_code.trim() : undefined,
         ...(isDonorRole && {
           blood_type: form.blood_type,
+          sex: form.sex,
           current_district: form.current_district.trim(),
           current_thana: form.current_thana.trim() || undefined,
           phone_number: form.phone_number.trim() || undefined,
@@ -230,17 +236,31 @@ export default function Register() {
             </Select>
           </FormField>
 
-          <FormField label="Phone number" htmlFor="phone_number">
-            <Input
-              id="phone_number"
-              type="tel"
-              value={form.phone_number}
-              onChange={(e) => updateField('phone_number', e.target.value)}
+          <FormField label="Sex" htmlFor="sex" error={errors.sex}>
+            <Select
+              id="sex"
+              value={form.sex}
+              onChange={(e) => updateField('sex', e.target.value)}
+              error={!!errors.sex}
               disabled={!isDonorRole}
-              placeholder={isDonorRole ? '+8801XXXXXXXXX' : 'Not needed'}
-            />
+            >
+              <option value="">{isDonorRole ? 'Select…' : 'Not needed'}</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </Select>
           </FormField>
         </div>
+
+        <FormField label="Phone number" htmlFor="phone_number">
+          <Input
+            id="phone_number"
+            type="tel"
+            value={form.phone_number}
+            onChange={(e) => updateField('phone_number', e.target.value)}
+            disabled={!isDonorRole}
+            placeholder={isDonorRole ? '+8801XXXXXXXXX' : 'Not needed'}
+          />
+        </FormField>
 
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Current district" htmlFor="current_district" error={errors.current_district}>

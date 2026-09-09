@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { getEligibility } = require('../services/eligibility');
+const { getEligibility, isUnderAnnualCap } = require('../services/eligibility');
 
 // Same shelf-life reference ranges already used by Blood Bank's Add
 // Inventory Unit -- reused here rather than reinvented, so a unit logged
@@ -144,16 +144,31 @@ router.post('/:id/log-unit', requireAuth, requireRole('ngo', 'admin'), async (re
     return res.status(403).json({ error: 'This donor belongs to a different organization' });
   }
 
-  // The actual enforcement was previously missing entirely -- this
-  // endpoint checked the drive was active and the donor existed, but
-  // nothing stopped logging another donation five minutes after the
-  // last one. Same cooldown rule donorFallback.js uses to decide who to
-  // invite, now also gating who can actually be logged.
-  const eligibility = getEligibility(donor.last_donation_date, component);
+  // Cooldown check (crossover-matrix-based, sex-differentiated for
+  // whole blood). Was previously missing entirely -- this endpoint
+  // checked the drive was active and the donor existed, but nothing
+  // stopped logging another donation five minutes after the last one.
+  const eligibility = getEligibility(donor, component);
   if (!eligibility.eligible) {
     return res.status(400).json({
       error: `This donor isn't eligible to donate ${component.replace('_', ' ')} again until ${eligibility.eligibleDate.toISOString().slice(0, 10)}`,
       eligible_date: eligibility.eligibleDate,
+    });
+  }
+
+  // Annual cap check -- a real, separate dimension from the cooldown
+  // above (someone could clear every cooldown window and still exceed
+  // e.g. 3 whole-blood donations in a rolling year). Rolling 365-day
+  // window, not calendar year, for consistency with the cooldown model.
+  const annualCountResult = await pool.query(
+    `SELECT COUNT(*) FROM inventory_units
+     WHERE donor_id = $1 AND component = $2 AND created_at >= NOW() - INTERVAL '365 days'`,
+    [donor_id, component]
+  );
+  const donationsInPastYear = Number(annualCountResult.rows[0].count);
+  if (!isUnderAnnualCap(donationsInPastYear, component, donor.sex)) {
+    return res.status(400).json({
+      error: `This donor has already reached the annual limit for ${component.replace('_', ' ')} donations.`,
     });
   }
 
@@ -176,7 +191,10 @@ router.post('/:id/log-unit', requireAuth, requireRole('ngo', 'admin'), async (re
       createdUnits.push(unitResult.rows[0]);
     }
 
-    await client.query('UPDATE donors SET last_donation_date = $1 WHERE donor_id = $2', [today, donor_id]);
+    await client.query(
+      'UPDATE donors SET last_donation_date = $1, last_donation_component = $2 WHERE donor_id = $3',
+      [today, component, donor_id]
+    );
 
     await client.query('COMMIT');
     res.status(201).json({ units: createdUnits, donor_id });
@@ -200,7 +218,7 @@ router.get('/:id/log', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT iu.unit_id, iu.blood_type, iu.component, iu.status, iu.created_at,
-              d.donor_id, d.full_name AS donor_name
+              d.donor_id, d.full_name AS donor_name, d.sex AS donor_sex
        FROM inventory_units iu
        JOIN donors d ON d.donor_id = iu.donor_id
        WHERE iu.drive_id = $1

@@ -20,9 +20,11 @@ export default function RegisterDonor() {
     phone_number: '',
     email: '',
     blood_type: '',
+    sex: '',
     current_district: '',
     current_thana: '',
     last_donation_date: '',
+    last_donation_component: '',
   });
   const [districts, setDistricts] = useState([]);
   const [thanas, setThanas] = useState([]);
@@ -53,6 +55,24 @@ export default function RegisterDonor() {
       setError('Full name, phone number, and blood type are required.');
       return;
     }
+    // Required, not optional, for assisted registration specifically --
+    // these donors feed the allocation engine's location-proximity
+    // ranking (see donorFallback.js), so an address genuinely isn't
+    // optional the way it might seem. Self-registration only requires
+    // district (not thana) since a donor filling in their own form has
+    // less in-person context than an NGO volunteer collecting it directly.
+    if (!form.current_district.trim() || !form.current_thana.trim()) {
+      setError('District and thana are required -- these donors need a real location to be matched against requests.');
+      return;
+    }
+    if (!form.sex) {
+      setError('Sex is required -- whole blood eligibility genuinely differs by sex.');
+      return;
+    }
+    if (form.last_donation_date && !form.last_donation_component) {
+      setError('If you know their last donation date, please also select what they donated -- the cooldown depends on both.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -61,10 +81,12 @@ export default function RegisterDonor() {
         full_name: form.full_name.trim(),
         phone_number: form.phone_number.trim(),
         blood_type: form.blood_type,
+        sex: form.sex,
         email: form.email.trim() || undefined,
         current_district: form.current_district.trim() || undefined,
         current_thana: form.current_thana.trim() || undefined,
         last_donation_date: form.last_donation_date || undefined,
+        last_donation_component: form.last_donation_date ? form.last_donation_component : undefined,
       });
       navigate(`/ngo/donors/${donor.donor_id}`);
     } catch (err) {
@@ -95,14 +117,23 @@ export default function RegisterDonor() {
           <Input id="email" type="email" value={form.email} onChange={(e) => updateField('email', e.target.value)} placeholder="Optional, but needed if they want a login later" />
         </FormField>
 
-        <FormField label="Blood type" htmlFor="blood_type">
-          <Select id="blood_type" value={form.blood_type} onChange={(e) => updateField('blood_type', e.target.value)}>
-            <option value="">Select…</option>
-            {BLOOD_TYPES.map((bt) => (
-              <option key={bt} value={bt}>{bt}</option>
-            ))}
-          </Select>
-        </FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Blood type" htmlFor="blood_type">
+            <Select id="blood_type" value={form.blood_type} onChange={(e) => updateField('blood_type', e.target.value)}>
+              <option value="">Select…</option>
+              {BLOOD_TYPES.map((bt) => (
+                <option key={bt} value={bt}>{bt}</option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Sex" htmlFor="sex">
+            <Select id="sex" value={form.sex} onChange={(e) => updateField('sex', e.target.value)}>
+              <option value="">Select…</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </Select>
+          </FormField>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <FormField label="District" htmlFor="current_district">
@@ -128,15 +159,31 @@ export default function RegisterDonor() {
           </FormField>
         </div>
 
-        <FormField label="Last donation date" htmlFor="last_donation_date">
-          <Input
-            id="last_donation_date"
-            type="date"
-            value={form.last_donation_date}
-            onChange={(e) => updateField('last_donation_date', e.target.value)}
-          />
-          <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Optional, ask them directly.</p>
-        </FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Last donation date" htmlFor="last_donation_date">
+            <Input
+              id="last_donation_date"
+              type="date"
+              value={form.last_donation_date}
+              onChange={(e) => updateField('last_donation_date', e.target.value)}
+            />
+            <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Optional, ask them directly.</p>
+          </FormField>
+          <FormField label="What did they donate?" htmlFor="last_donation_component">
+            <Select
+              id="last_donation_component"
+              value={form.last_donation_component}
+              onChange={(e) => updateField('last_donation_component', e.target.value)}
+              disabled={!form.last_donation_date}
+            >
+              <option value="">{form.last_donation_date ? 'Select…' : 'Enter a date first'}</option>
+              <option value="whole_blood">Whole blood</option>
+              <option value="platelets">Platelets</option>
+              <option value="plasma">Plasma</option>
+            </Select>
+            <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Required together with the date -- the cooldown depends on both.</p>
+          </FormField>
+        </div>
 
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>

@@ -63,7 +63,7 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: `invite_code is required for the '${role}' role` });
   }
   if (role === 'donor') {
-    const { blood_type, current_district, phone_number } = req.body;
+    const { blood_type, current_district, phone_number, sex } = req.body;
     if (!blood_type || !DONOR_BLOOD_TYPES.includes(blood_type)) {
       return res.status(400).json({
         error: `blood_type is required for donor registration and must be one of: ${DONOR_BLOOD_TYPES.join(', ')}`,
@@ -74,6 +74,13 @@ router.post('/register', async (req, res) => {
     }
     if (!phone_number) {
       return res.status(400).json({ error: 'phone_number is required for donor registration' });
+    }
+    // Required because whole blood's cooldown genuinely differs by sex
+    // (120 days male / 180 days female, independently verified -- see
+    // services/eligibility.js). Framed strictly for donation-eligibility
+    // computation, not gender identity.
+    if (!sex || !['male', 'female'].includes(sex)) {
+      return res.status(400).json({ error: "sex is required for donor registration and must be 'male' or 'female'" });
     }
   }
 
@@ -113,7 +120,7 @@ router.post('/register', async (req, res) => {
       // insert failure after the users insert already committed would
       // leave an orphaned login with no donor record behind it, silently
       // recreating the exact users<->donors disconnect this was meant to fix.
-      const { blood_type, current_district, current_thana, phone_number } = req.body;
+      const { blood_type, current_district, current_thana, phone_number, sex } = req.body;
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -139,9 +146,9 @@ router.post('/register', async (req, res) => {
         }
 
         await client.query(
-          `INSERT INTO donors (user_id, full_name, blood_type, current_district, current_thana, current_thana_id, phone_number, eligibility_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'eligible')`,
-          [newUser.user_id, full_name || null, blood_type, current_district, current_thana || null, thanaId, phone_number]
+          `INSERT INTO donors (user_id, full_name, blood_type, current_district, current_thana, current_thana_id, phone_number, sex, eligibility_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible')`,
+          [newUser.user_id, full_name || null, blood_type, current_district, current_thana || null, thanaId, phone_number, sex]
         );
 
         await client.query('COMMIT');

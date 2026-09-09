@@ -8,7 +8,7 @@ import { getDonor, updateDonor, inviteDonorLogin } from '../../api/donors';
 import { listDrives } from '../../api/drives';
 import { listInventory } from '../../api/inventory';
 import { listMobilizations } from '../../api/mobilizations';
-import { getEligibility } from '../../utils/eligibility';
+import { formatEligibility } from '../../utils/eligibility';
 
 export default function DonorDetail() {
   const { id } = useParams();
@@ -84,8 +84,6 @@ export default function DonorDetail() {
     );
   }
 
-  const eligibility = getEligibility(donor.last_donation_date, 'whole_blood');
-
   return (
     <div className="p-6">
       <Link to="/ngo/donors" className="text-sm text-primary dark:text-textprimary-dark mb-4 inline-block">
@@ -149,6 +147,10 @@ export default function DonorDetail() {
               <p className="font-medium dark:text-textprimary-dark">{donor.blood_type}</p>
             </div>
             <div>
+              <p className="text-xs text-gray-400 mb-1">Sex</p>
+              <p className="font-medium dark:text-textprimary-dark capitalize">{donor.sex || '—'}</p>
+            </div>
+            <div>
               <p className="text-xs text-gray-400 mb-1">Location</p>
               <p className="font-medium dark:text-textprimary-dark">
                 {[donor.current_thana, donor.current_district].filter(Boolean).join(', ') || '—'}
@@ -157,15 +159,20 @@ export default function DonorDetail() {
             <div>
               <p className="text-xs text-gray-400 mb-1">Last donation</p>
               <p className="font-medium mono text-xs dark:text-textprimary-dark">
-                {donor.last_donation_date ? new Date(donor.last_donation_date).toLocaleDateString() : 'Never'}
+                {donor.last_donation_date
+                  ? `${new Date(donor.last_donation_date).toLocaleDateString()} (${donor.last_donation_component?.replace('_', ' ')})`
+                  : 'Never'}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Eligibility</p>
-              <p className="font-medium text-elective-text dark:text-elective-dtext">
-                {eligibility.eligible ? 'Eligible now' : `Eligible ${eligibility.eligibleDate.toLocaleDateString()}`}
-              </p>
-            </div>
+          </div>
+        )}
+
+        {!editing && (
+          <div className="mt-3">
+            <p className="text-xs text-gray-400 mb-1">Eligibility</p>
+            <p className="font-medium text-elective-text dark:text-elective-dtext text-sm">
+              {formatEligibility(donor)}
+            </p>
           </div>
         )}
 

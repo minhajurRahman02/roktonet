@@ -7,22 +7,7 @@ import EmptyState from '../../components/molecules/EmptyState';
 import Input from '../../components/atoms/Input';
 import Button from '../../components/atoms/Button';
 import { listDonors } from '../../api/donors';
-import { getEligibility } from '../../utils/eligibility';
-
-function eligibilityLabel(lastDonationDate) {
-  // Whole blood's window (the longest) used as the roster glance-view
-  // reference -- this table doesn't have a specific component in
-  // context, unlike Log Unit, which checks the actual selected component.
-  const { eligible, eligibleDate } = getEligibility(lastDonationDate, 'whole_blood');
-  if (eligible) return { text: 'Eligible now', style: 'elective' };
-  const days = Math.ceil((eligibleDate - new Date()) / (1000 * 60 * 60 * 24));
-  return { text: `Eligible in ${days} days`, style: 'urgent' };
-}
-
-const BADGE_STYLE = {
-  elective: 'text-elective-text bg-elective-bg dark:text-elective-dtext dark:bg-elective-dbg',
-  urgent: 'text-urgent-text bg-urgent-bg dark:text-urgent-dtext dark:bg-urgent-dbg',
-};
+import { formatEligibility } from '../../utils/eligibility';
 
 export default function MyDonors() {
   const navigate = useNavigate();
@@ -76,39 +61,38 @@ export default function MyDonors() {
       )}
       {status === 'success' && donors.length > 0 && (
         <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm min-w-[600px]">
+          <table className="w-full text-sm min-w-[820px]">
             <thead className="bg-gray-50 dark:bg-white/5 text-left text-xs text-gray-500 dark:text-textsecondary-dark">
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Phone</th>
                 <th className="px-4 py-3 font-medium">Blood type</th>
                 <th className="px-4 py-3 font-medium">Last donation</th>
+                <th className="px-4 py-3 font-medium">Donated component</th>
                 <th className="px-4 py-3 font-medium">Eligibility</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-white/5">
-              {donors.map((donor) => {
-                const eligibility = eligibilityLabel(donor.last_donation_date);
-                return (
-                  <tr
-                    key={donor.donor_id}
-                    className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer"
-                    onClick={() => navigate(`/ngo/donors/${donor.donor_id}`)}
-                  >
-                    <td className="px-4 py-3 font-medium dark:text-textprimary-dark">{donor.full_name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">{donor.phone_number}</td>
-                    <td className="px-4 py-3 dark:text-textprimary-dark">{donor.blood_type}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
-                      {donor.last_donation_date ? new Date(donor.last_donation_date).toLocaleDateString() : 'Never donated'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${BADGE_STYLE[eligibility.style]}`}>
-                        {eligibility.text}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {donors.map((donor) => (
+                <tr
+                  key={donor.donor_id}
+                  className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer"
+                  onClick={() => navigate(`/ngo/donors/${donor.donor_id}`)}
+                >
+                  <td className="px-4 py-3 font-medium dark:text-textprimary-dark">{donor.full_name || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">{donor.phone_number}</td>
+                  <td className="px-4 py-3 dark:text-textprimary-dark">{donor.blood_type}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
+                    {donor.last_donation_date ? new Date(donor.last_donation_date).toLocaleDateString() : 'Never donated'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-textsecondary-dark capitalize">
+                    {donor.last_donation_component ? donor.last_donation_component.replace('_', ' ') : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-textsecondary-dark text-xs max-w-xs">
+                    {formatEligibility(donor)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

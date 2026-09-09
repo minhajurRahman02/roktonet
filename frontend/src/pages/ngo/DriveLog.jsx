@@ -1,13 +1,52 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Chart as ChartJS, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, TimeScale } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, LineElement, PointElement, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js';
+import { Line, Doughnut } from 'react-chartjs-2';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
 import { getDrive, getDriveLog } from '../../api/drives';
 
-ChartJS.register(LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, TimeScale);
+ChartJS.register(LineElement, PointElement, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend);
+
+const TOOLTIP_STYLE = { backgroundColor: '#12332A' };
+const COMPONENT_COLORS = { whole_blood: '#1C4A3D', platelets: '#B8811F', plasma: '#5B7A8C' };
+const SEX_COLORS = { male: '#42606F', female: '#8C6117' };
+
+// Fixed time buckets, not one point per logged unit -- the point is to
+// show collection PACE against real calendar time, not just a sequence
+// of events. Bucket size adapts to the drive's actual duration so a
+// 20-minute drive doesn't get 30-minute buckets (nothing to show) and an
+// 8-hour drive doesn't get 5-minute buckets (hundreds of flat points).
+function buildCumulativeTimeSeries(log, startTime) {
+  if (log.length === 0) return { labels: [], data: [] };
+
+  const start = new Date(startTime);
+  const end = new Date(log[log.length - 1].created_at);
+  const totalMinutes = Math.max(1, (end - start) / 60000);
+  const bucketMinutes = totalMinutes <= 60 ? 5 : totalMinutes <= 180 ? 15 : 30;
+  const bucketCount = Math.ceil(totalMinutes / bucketMinutes) + 1;
+
+  const labels = [];
+  const data = [];
+  for (let i = 0; i <= bucketCount; i++) {
+    const bucketTime = new Date(start.getTime() + i * bucketMinutes * 60000);
+    if (bucketTime > new Date() && bucketTime > end) break;
+    labels.push(bucketTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    data.push(log.filter((entry) => new Date(entry.created_at) <= bucketTime).length);
+  }
+  return { labels, data };
+}
+
+function countBy(log, key) {
+  const counts = {};
+  for (const entry of log) {
+    const value = entry[key];
+    if (!value) continue;
+    counts[value] = (counts[value] || 0) + 1;
+  }
+  return counts;
+}
 
 export default function DriveLog() {
   const { id } = useParams();
@@ -50,11 +89,9 @@ export default function DriveLog() {
     );
   }
 
-  // Cumulative count over time -- a different shape of chart than the
-  // blood-group bars/donuts used everywhere else in this app, since this
-  // one is about pacing/momentum during the drive, not composition.
-  const cumulativeData = log.map((_, i) => i + 1);
-  const labels = log.map((entry) => new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const timeSeries = buildCumulativeTimeSeries(log, drive.started_at || drive.drive_date);
+  const componentCounts = countBy(log, 'component');
+  const sexCounts = countBy(log, 'donor_sex');
 
   return (
     <div className="p-6">
@@ -79,28 +116,73 @@ export default function DriveLog() {
         <>
           <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-4 sm:p-5 mb-6">
             <p className="text-sm font-medium mb-1 dark:text-textprimary-dark">Collection pace</p>
-            <p className="text-xs text-gray-400 mb-4">Running total of units logged over the course of the drive.</p>
+            <p className="text-xs text-gray-400 mb-4">Cumulative units collected, tracked at a fixed time interval.</p>
             <div style={{ height: 220 }}>
               <Line
                 data={{
-                  labels,
+                  labels: timeSeries.labels,
                   datasets: [{
                     label: 'Cumulative units',
-                    data: cumulativeData,
+                    data: timeSeries.data,
                     borderColor: '#1C4A3D',
                     backgroundColor: 'rgba(28, 74, 61, 0.1)',
                     fill: true,
                     tension: 0.3,
                     pointRadius: 3,
+                    stepped: true,
                   }],
                 }}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { display: false }, tooltip: { backgroundColor: '#12332A' } },
+                  plugins: { legend: { display: false }, tooltip: TOOLTIP_STYLE },
                   scales: { y: { beginAtZero: true, grid: { color: '#F0F0EE' } }, x: { grid: { display: false } } },
                 }}
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-4 sm:p-5">
+              <p className="text-sm font-medium mb-1 dark:text-textprimary-dark">By component</p>
+              <p className="text-xs text-gray-400 mb-4">What was collected, not just how much.</p>
+              <div style={{ height: 200 }}>
+                <Doughnut
+                  data={{
+                    labels: Object.keys(componentCounts).map((c) => c.replace('_', ' ')),
+                    datasets: [{
+                      data: Object.values(componentCounts),
+                      backgroundColor: Object.keys(componentCounts).map((c) => COMPONENT_COLORS[c] || '#9CA3AF'),
+                      borderWidth: 0,
+                    }],
+                  }}
+                  options={{
+                    responsive: true, maintainAspectRatio: false, cutout: '60%',
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }, tooltip: TOOLTIP_STYLE },
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-4 sm:p-5">
+              <p className="text-sm font-medium mb-1 dark:text-textprimary-dark">By donor sex</p>
+              <p className="text-xs text-gray-400 mb-4">Split of units by donor sex on file.</p>
+              <div style={{ height: 200 }}>
+                <Doughnut
+                  data={{
+                    labels: Object.keys(sexCounts).map((s) => s.charAt(0).toUpperCase() + s.slice(1)),
+                    datasets: [{
+                      data: Object.values(sexCounts),
+                      backgroundColor: Object.keys(sexCounts).map((s) => SEX_COLORS[s] || '#9CA3AF'),
+                      borderWidth: 0,
+                    }],
+                  }}
+                  options={{
+                    responsive: true, maintainAspectRatio: false, cutout: '60%',
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }, tooltip: TOOLTIP_STYLE },
+                  }}
+                />
+              </div>
             </div>
           </div>
 

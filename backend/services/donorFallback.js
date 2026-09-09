@@ -4,7 +4,7 @@
 
 const pool = require('../db');
 const { logRequestEvent } = require('./requestEvents');
-const { ELIGIBILITY_COOLDOWN_DAYS } = require('./eligibility');
+const { getEligibility, isUnderAnnualCap } = require('./eligibility');
 
 const MAX_DONORS_PER_INVITE = 5;
 
@@ -49,25 +49,50 @@ async function triggerDonorFallback(request) {
   );
   const org = orgResult.rows[0] || {};
 
-  const cooldownDays = ELIGIBILITY_COOLDOWN_DAYS[request.component] || ELIGIBILITY_COOLDOWN_DAYS.whole_blood;
-  const eligibleCutoff = new Date();
-  eligibleCutoff.setDate(eligibleCutoff.getDate() - cooldownDays);
-
-  const donorsResult = await pool.query(
-    `SELECT donor_id,
+  // The cooldown can no longer be expressed as a single SQL WHERE clause
+  // -- it now depends on which component was last donated AND donor sex
+  // (the crossover matrix), not just a flat date cutoff. Fetch the full
+  // compatible/uninvited candidate pool with location ranking still done
+  // in SQL (cheap, still expressible as a CASE), then filter for
+  // eligibility in JS. Fine at this project's scale (a simulated donor
+  // pool, not millions of rows) -- not worth forcing the crossover logic
+  // into an unwieldy SQL CASE tree just to keep everything server-side.
+  const candidatesResult = await pool.query(
+    `SELECT donor_id, last_donation_date, last_donation_component, sex,
        CASE
-         WHEN current_thana_id IS NOT NULL AND current_thana_id = $5 THEN 0
-         WHEN current_district IS NOT NULL AND current_district = $6 THEN 1
+         WHEN current_thana_id IS NOT NULL AND current_thana_id = $3 THEN 0
+         WHEN current_district IS NOT NULL AND current_district = $4 THEN 1
          ELSE 2
        END AS location_rank
      FROM donors
-     WHERE (last_donation_date IS NULL OR last_donation_date <= $4)
-       AND blood_type = ANY($1)
+     WHERE blood_type = ANY($1)
        AND donor_id != ALL($2)
-     ORDER BY location_rank ASC
-     LIMIT $3`,
-    [compatibleTypes, excludeIds, MAX_DONORS_PER_INVITE, eligibleCutoff, org.thana_id || null, org.district || null]
+     ORDER BY location_rank ASC`,
+    [compatibleTypes, excludeIds, org.thana_id || null, org.district || null]
   );
+
+  const cooldownEligible = candidatesResult.rows.filter(
+    (donor) => getEligibility(donor, request.component).eligible
+  );
+
+  // Annual cap: one grouped COUNT query for every remaining candidate at
+  // once, rather than one query per donor.
+  let annualCounts = {};
+  if (cooldownEligible.length > 0) {
+    const countResult = await pool.query(
+      `SELECT donor_id, COUNT(*) FROM inventory_units
+       WHERE donor_id = ANY($1) AND component = $2 AND created_at >= NOW() - INTERVAL '365 days'
+       GROUP BY donor_id`,
+      [cooldownEligible.map((d) => d.donor_id), request.component]
+    );
+    annualCounts = Object.fromEntries(countResult.rows.map((r) => [r.donor_id, Number(r.count)]));
+  }
+
+  const donorsResult = {
+    rows: cooldownEligible
+      .filter((donor) => isUnderAnnualCap(annualCounts[donor.donor_id] || 0, request.component, donor.sex))
+      .slice(0, MAX_DONORS_PER_INVITE),
+  };
 
   for (const donor of donorsResult.rows) {
     await pool.query(

@@ -89,7 +89,7 @@ export default function LogUnit() {
   // replace the real check (that happens server-side, and is what
   // actually stops the request), just saves a round trip for the common
   // case of picking an obviously-too-soon component.
-  const eligibility = getEligibility(donor.last_donation_date, component);
+  const eligibility = getEligibility(donor, component);
 
   return (
     <div className="p-6">

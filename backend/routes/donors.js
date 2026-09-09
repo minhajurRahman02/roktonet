@@ -50,14 +50,44 @@ router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, re
 // this exact scenario deserved a purpose-built route when we got here,
 // not a retrofit of the leftover one. This is that route.)
 router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
-  const { org_id, full_name, phone_number, blood_type, email, current_district, current_thana, last_donation_date } =
-    req.body;
+  const {
+    org_id,
+    full_name,
+    phone_number,
+    blood_type,
+    email,
+    current_district,
+    current_thana,
+    last_donation_date,
+    last_donation_component,
+    sex,
+  } = req.body;
 
-  if (!org_id || !full_name || !phone_number || !blood_type) {
-    return res.status(400).json({ error: 'org_id, full_name, phone_number, and blood_type are required' });
+  // Required, not optional, for assisted registration -- unlike
+  // self-registration (which only requires district), these donors
+  // need a real location on record since the NGO is the one collecting
+  // it in person, and it feeds directly into donorFallback.js's
+  // location-proximity ranking.
+  if (!org_id || !full_name || !phone_number || !blood_type || !current_district || !current_thana) {
+    return res.status(400).json({
+      error: 'org_id, full_name, phone_number, blood_type, current_district, and current_thana are required',
+    });
   }
   if (req.user.role !== 'admin' && org_id !== req.user.org_id) {
     return res.status(403).json({ error: 'You may only register donors for your own organization' });
+  }
+  // Required for the same reason as self-registration: whole blood's
+  // cooldown genuinely differs by sex.
+  if (!sex || !['male', 'female'].includes(sex)) {
+    return res.status(400).json({ error: "sex is required and must be 'male' or 'female'" });
+  }
+  // If the NGO asked the donor when they last gave, they need to also
+  // record WHAT they gave -- the crossover matrix can't apply without
+  // knowing which component started the cooldown. Required together,
+  // not independently optional, since one without the other can't be
+  // used for anything.
+  if (last_donation_date && !last_donation_component) {
+    return res.status(400).json({ error: 'last_donation_component is required when last_donation_date is provided' });
   }
 
   try {
@@ -68,8 +98,8 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO donors (org_id, full_name, phone_number, blood_type, email, current_district, current_thana, current_thana_id, last_donation_date, eligibility_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'eligible')
+      `INSERT INTO donors (org_id, full_name, phone_number, blood_type, email, current_district, current_thana, current_thana_id, last_donation_date, last_donation_component, sex, eligibility_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'eligible')
        RETURNING *`,
       [
         org_id,
@@ -81,6 +111,8 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
         current_thana || null,
         thanaId,
         last_donation_date || null,
+        last_donation_component || null,
+        sex,
       ]
     );
     res.status(201).json(result.rows[0]);
