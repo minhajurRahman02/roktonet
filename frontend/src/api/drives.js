@@ -1,7 +1,13 @@
 import { apiFetch } from './client';
 
-export function listDrives() {
-  return apiFetch('/api/drives');
+/**
+ * @param {{org_id?: string, district?: string, status?: string}} [filters]
+ * For ngo/admin: the caller's own drives (filters ignored). For donor:
+ * browse across every NGO, optionally filtered.
+ */
+export function listDrives(filters = {}) {
+  const params = new URLSearchParams(filters).toString();
+  return apiFetch(`/api/drives${params ? `?${params}` : ''}`);
 }
 
 export function getDrive(id) {

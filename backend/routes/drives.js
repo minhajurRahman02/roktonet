@@ -19,7 +19,11 @@ async function getOwnedDrive(driveId, user) {
   const result = await pool.query('SELECT * FROM donor_drives WHERE drive_id = $1', [driveId]);
   if (result.rows.length === 0) return { error: 404, message: 'Drive not found' };
   const drive = result.rows[0];
-  if (user.role !== 'admin' && drive.org_id !== user.org_id) {
+  // Donors can view any drive read-only (Browse Drives -> Drive Info) --
+  // safe to allow here since the write-action routes that also use this
+  // helper (start/finish/log-unit) already reject a donor caller via
+  // requireRole before ever reaching this check.
+  if (user.role !== 'admin' && user.role !== 'donor' && drive.org_id !== user.org_id) {
     return { error: 403, message: 'You do not have access to this drive' };
   }
   return { drive };
@@ -50,7 +54,52 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
 });
 
 // GET /api/drives - list, auto-scoped to the caller's own org
-router.get('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
+// GET /api/drives - two modes. For ngo/admin: the caller's own drives
+// (unchanged). For donor: browse ALL drives across every NGO, optionally
+// filtered by org_id/district/status -- powers Browse Drives. Joined to
+// organization name/district so the frontend doesn't need a second call
+// per card.
+router.get('/', requireAuth, async (req, res) => {
+  if (req.user.role === 'donor') {
+    const { org_id, district, status } = req.query;
+    const conditions = [];
+    const values = [];
+
+    if (org_id) {
+      values.push(org_id);
+      conditions.push(`dd.org_id = $${values.length}`);
+    }
+    if (district) {
+      values.push(district);
+      conditions.push(`o.district = $${values.length}`);
+    }
+    if (status) {
+      values.push(status);
+      conditions.push(`dd.status = $${values.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    try {
+      const result = await pool.query(
+        `SELECT dd.*, o.name AS org_name, o.district AS org_district,
+                o.contact_phone AS org_contact_phone, o.contact_email AS org_contact_email
+         FROM donor_drives dd
+         JOIN organizations o ON o.org_id = dd.org_id
+         ${whereClause}
+         ORDER BY dd.created_at DESC`,
+        values
+      );
+      return res.json(result.rows);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  if (!['ngo', 'admin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'This action requires one of these roles: ngo, admin, donor' });
+  }
+
   let orgId = req.user.org_id;
   if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
 
@@ -140,9 +189,14 @@ router.post('/:id/log-unit', requireAuth, requireRole('ngo', 'admin'), async (re
     return res.status(404).json({ error: 'Donor not found' });
   }
   const donor = donorResult.rows[0];
-  if (donor.org_id && donor.org_id !== owned.drive.org_id) {
-    return res.status(403).json({ error: 'This donor belongs to a different organization' });
-  }
+  // Previously blocked any donor whose org_id didn't match this drive's
+  // NGO -- meaning an already-affiliated donor couldn't attend a
+  // DIFFERENT NGO's drive at all. Removed: any donor can be logged at
+  // any drive, matching the real vision (browse and attend regardless of
+  // affiliation). Auto-enrollment (below, after the transaction) only
+  // ever fills in an org_id that was null to begin with -- an
+  // already-affiliated donor donating as a "guest" elsewhere is never
+  // silently reassigned away from their existing NGO.
 
   // Cooldown check (crossover-matrix-based, sex-differentiated for
   // whole blood). Was previously missing entirely -- this endpoint
@@ -194,6 +248,17 @@ router.post('/:id/log-unit', requireAuth, requireRole('ngo', 'admin'), async (re
     await client.query(
       'UPDATE donors SET last_donation_date = $1, last_donation_component = $2 WHERE donor_id = $3',
       [today, component, donor_id]
+    );
+
+    // Auto-enrollment: a donor who had no NGO at all gets folded into
+    // this one's roster as a natural byproduct of actually showing up --
+    // matches how it'd work in person. COALESCE means this only ever
+    // fills in a null; an already-affiliated donor's existing org_id is
+    // never touched, even though they were just allowed to donate here
+    // as a guest.
+    await client.query(
+      'UPDATE donors SET org_id = COALESCE(org_id, $1) WHERE donor_id = $2',
+      [owned.drive.org_id, donor_id]
     );
 
     await client.query('COMMIT');

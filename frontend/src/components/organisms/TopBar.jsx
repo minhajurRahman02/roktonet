@@ -166,9 +166,13 @@ export default function TopBar({ breadcrumbs }) {
             onClick={() => setMenuOpen((o) => !o)}
             className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5"
           >
-            <div className="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold shrink-0">
-              {initials(user?.full_name || user?.org_name)}
-            </div>
+            {user?.avatar_url ? (
+              <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                {initials(user?.full_name || user?.org_name)}
+              </div>
+            )}
             <div className="text-left leading-tight hidden sm:block">
               <p className="text-xs font-medium dark:text-textprimary-dark">{user?.full_name || user?.org_name || 'Account'}</p>
               <p className="text-[10px] text-gray-400 dark:text-textsecondary-dark capitalize">{user?.role}</p>
@@ -182,9 +186,12 @@ export default function TopBar({ breadcrumbs }) {
                 {...dropdownMotion}
                 className="absolute right-0 mt-2 w-44 bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-lg shadow-lg py-1 z-10 origin-top-right"
               >
-                <a href="#" className="block px-3 py-2 text-sm text-gray-700 dark:text-textsecondary-dark hover:bg-gray-50 dark:hover:bg-white/5">
+                <button
+                  onClick={() => { setMenuOpen(false); navigate('/profile'); }}
+                  className="w-full text-left block px-3 py-2 text-sm text-gray-700 dark:text-textsecondary-dark hover:bg-gray-50 dark:hover:bg-white/5"
+                >
                   My profile
-                </a>
+                </button>
                 <a href="#" className="block px-3 py-2 text-sm text-gray-700 dark:text-textsecondary-dark hover:bg-gray-50 dark:hover:bg-white/5">
                   Settings
                 </a>

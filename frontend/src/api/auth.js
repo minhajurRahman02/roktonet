@@ -52,3 +52,37 @@ export function resetPassword(token, newPassword) {
     body: JSON.stringify({ token, new_password: newPassword }),
   });
 }
+
+/**
+ * @param {{full_name?: string, avatar_url?: string}} data
+ */
+export function updateMe(data) {
+  return apiFetch('/api/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * For a logged-in user changing their own password (distinct from the
+ * forgot-password flow above, which is for someone who can't log in at all).
+ */
+export function changePassword(currentPassword, newPassword) {
+  return apiFetch('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+/**
+ * @param {File} file
+ * @returns {Promise<{avatar_url: string}>}
+ */
+export function uploadAvatar(file) {
+  const formData = new FormData();
+  formData.append('avatar', file);
+  return apiFetch('/api/auth/me/avatar', {
+    method: 'POST',
+    body: formData,
+  });
+}

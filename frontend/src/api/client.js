@@ -16,15 +16,21 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
  * @throws {Error} with a human-readable message on any non-2xx response
  */
 export async function apiFetch(path, options = {}) {
+  // A FormData body (file uploads) must NOT get a manually-set
+  // Content-Type -- the browser sets one itself, including the
+  // multipart boundary, which is impossible to construct correctly by
+  // hand. Every other call still gets the JSON default, unchanged.
+  const isFormData = options.body instanceof FormData;
+
   const response = await fetch(`${API_BASE}${path}`, {
     // Required for httpOnly cookies to be sent/received on cross-origin
     // requests (production). Harmless on same-origin (dev via proxy).
     credentials: 'include',
+    ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...options.headers,
     },
-    ...options,
   });
 
   // Some endpoints (e.g. logout) may return no body at all.

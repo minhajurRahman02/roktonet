@@ -11,9 +11,47 @@ const { logRequestEvent } = require('../services/requestEvents');
 // meant any org's org_id could be passed in the query string to see
 // another bank's full stock. Admin can pass org_id explicitly to view any
 // org's inventory.
+//
+// Donor is a genuinely different case, fixed here: donors aren't scoped
+// by org at all (their own org_id can be null for unaffiliated donors),
+// they're scoped by donor_id -- which of these unit rows they personally
+// gave. The previous org-based logic would have silently applied NO
+// filter at all for a donor with a null org_id, returning every unit in
+// the entire system to their Donation History page.
 router.get('/', requireAuth, async (req, res) => {
   const { blood_type, component } = req.query;
   let { org_id } = req.query;
+
+  if (req.user.role === 'donor') {
+    const donorResult = await pool.query('SELECT donor_id FROM donors WHERE user_id = $1', [
+      req.user.user_id,
+    ]);
+    if (donorResult.rows.length === 0) {
+      return res.status(400).json({ error: 'No donor record linked to this account' });
+    }
+
+    const conditions = ['donor_id = $1'];
+    const values = [donorResult.rows[0].donor_id];
+    if (blood_type) {
+      values.push(blood_type);
+      conditions.push(`blood_type = $${values.length}`);
+    }
+    if (component) {
+      values.push(component);
+      conditions.push(`component = $${values.length}`);
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT * FROM inventory_units WHERE ${conditions.join(' AND ')} ORDER BY collection_date DESC`,
+        values
+      );
+      return res.json(result.rows);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   if (req.user.role !== 'admin') {
     org_id = req.user.org_id;

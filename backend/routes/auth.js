@@ -6,10 +6,20 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const multer = require('multer');
 const pool = require('../db');
 const { requireAuth, COOKIE_NAME } = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const { resolveThana } = require('../services/locationResolver');
+const { uploadAvatar } = require('../services/supabaseStorage');
+
+// Files parsed into memory (not saved to the backend's own ephemeral
+// disk) since they immediately get forwarded to Supabase Storage.
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+});
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // Roles that must belong to an organization, and therefore must supply a
 // valid invite code at registration. This is what prevents someone from
@@ -324,10 +334,27 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.user_id, u.email, u.role, u.org_id, u.full_name, u.is_verified,
-              o.name AS org_name, o.org_type, o.district
+      // A donor's users.org_id is ALWAYS null -- donors aren't "staff"
+      // of anything, so that column is only ever meaningful for
+      // hospital/bank/ngo/admin accounts. A donor's real affiliation
+      // lives on donors.org_id instead, a completely separate column.
+      // Joining organizations via u.org_id alone meant every donor's
+      // org_id/org_name always came back null regardless of their true
+      // affiliation -- the sidebar's "My NGO" vs "Find an NGO" label,
+      // the affiliated/unaffiliated My NGO view, and the "Your NGO's
+      // drive" badge on Browse Drives were all silently reading this
+      // same always-null value. COALESCE picks whichever one is
+      // actually populated for this account -- exactly one of the two
+      // ever is, never both.
+      `SELECT u.user_id, u.email, u.role,
+              COALESCE(u.org_id, d.org_id) AS org_id,
+              u.full_name, u.is_verified, u.avatar_url,
+              o.name AS org_name, o.org_type, o.district,
+              o.contact_phone AS org_contact_phone, o.contact_email AS org_contact_email,
+              d.donor_id
        FROM users u
-       LEFT JOIN organizations o ON o.org_id = u.org_id
+       LEFT JOIN donors d ON d.user_id = u.user_id
+       LEFT JOIN organizations o ON o.org_id = COALESCE(u.org_id, d.org_id)
        WHERE u.user_id = $1`,
       [req.user.user_id]
     );
@@ -427,6 +454,90 @@ router.post('/reset-password', async (req, res) => {
     );
 
     res.json({ message: 'Password updated. You can now log in with your new password.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/auth/me - update your own name and/or avatar. Universal
+// across every role, since both fields live on `users`. Email is
+// deliberately excluded -- editing it properly needs a re-verification
+// flow (proving you control the new address), which is a genuinely
+// separate chunk of work not built here; email stays read-only for now.
+router.patch('/me', requireAuth, async (req, res) => {
+  const { full_name, avatar_url } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE users SET
+         full_name = COALESCE($1, full_name),
+         avatar_url = COALESCE($2, avatar_url)
+       WHERE user_id = $3
+       RETURNING user_id, email, role, org_id, full_name, avatar_url`,
+      [full_name, avatar_url, req.user.user_id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/change-password - for a LOGGED-IN user changing their
+// own password. Distinct from the forgot-password flow above, which is
+// for someone who can't log in at all. Requires the current password,
+// not just a bare "set new password" -- otherwise anyone with a stolen,
+// still-valid session could lock the real owner out permanently.
+router.post('/change-password', requireAuth, async (req, res) => {
+  const { current_password, new_password } = req.body;
+
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: 'current_password and new_password are both required' });
+  }
+  if (new_password.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+
+  try {
+    const result = await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.user_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User no longer exists' });
+    }
+
+    const isValid = await bcrypt.compare(current_password, result.rows[0].password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const newHash = await bcrypt.hash(new_password, BCRYPT_ROUNDS);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [newHash, req.user.user_id]);
+
+    res.json({ message: 'Password changed.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/me/avatar - upload a profile picture. Universal across
+// every role. multer parses the multipart upload into memory, then the
+// bytes get forwarded straight to Supabase Storage -- nothing is ever
+// written to the backend's own disk, which wouldn't persist across a
+// redeploy on most free-tier hosts anyway.
+router.post('/me/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded (field name must be "avatar")' });
+  }
+  if (!ALLOWED_AVATAR_TYPES.includes(req.file.mimetype)) {
+    return res.status(400).json({ error: 'Only JPEG, PNG, or WebP images are allowed' });
+  }
+
+  try {
+    const extension = req.file.mimetype.split('/')[1];
+    const publicUrl = await uploadAvatar(req.user.user_id, req.file.buffer, req.file.mimetype, extension);
+    await pool.query('UPDATE users SET avatar_url = $1 WHERE user_id = $2', [publicUrl, req.user.user_id]);
+    res.json({ avatar_url: publicUrl });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

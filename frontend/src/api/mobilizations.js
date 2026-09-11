@@ -11,3 +11,13 @@ export function getMobilizationsForRequest(requestId) {
 export function listMobilizations() {
   return apiFetch('/api/mobilizations');
 }
+
+/**
+ * @param {'confirmed'|'declined'} inviteStatus
+ */
+export function respondToMobilization(mobilizationId, inviteStatus) {
+  return apiFetch(`/api/mobilizations/${mobilizationId}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ invite_status: inviteStatus }),
+  });
+}

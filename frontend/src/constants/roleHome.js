@@ -9,8 +9,5 @@ export const ROLE_HOME = {
   hospital: '/hospital',
   bank: '/blood-bank',
   ngo: '/ngo',
-  // donor still lands in the shared hospital shell as a placeholder
-  // until its own dashboard is built (Phase 7.8) -- update here, once,
-  // when that happens.
-  donor: '/hospital',
+  donor: '/donor',
 };

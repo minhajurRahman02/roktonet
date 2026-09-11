@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -29,14 +29,31 @@ const NAV_BY_ROLE = {
     { to: '/ngo/drives', label: 'My Blood Drives', icon: Heart },
     { to: '/ngo/mobilizations', label: 'Mobilizations', icon: Truck },
   ],
-  // donor doesn't have a real dashboard yet (Phase 7.8) -- lands in the
-  // shared hospital shell as a placeholder.
-  donor: [{ to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true }],
+  // donor's nav is computed dynamically below (getNavItems), not listed
+  // here statically -- "My NGO" vs "Find an NGO" depends on whether the
+  // donor is currently affiliated with one.
 };
+
+function getNavItems(user) {
+  if (!user) return [];
+  if (user.role === 'donor') {
+    return [
+      { to: '/donor', label: 'Overview', icon: LayoutDashboard, end: true },
+      { to: '/donor/history', label: 'Donation History', icon: Droplets },
+      { to: '/donor/invites', label: 'My Invites', icon: Truck },
+      // The label itself reflects real affiliation state -- "My NGO"
+      // would be misleading for a donor who doesn't have one; "Find an
+      // NGO" would undersell it for a donor who does.
+      { to: '/donor/ngo', label: user.org_id ? 'My NGO' : 'Find an NGO', icon: Building2 },
+      { to: '/donor/browse', label: 'Browse Drives', icon: Search },
+    ];
+  }
+  return NAV_BY_ROLE[user.role] || [];
+}
 
 export default function Sidebar({ collapsed, onToggleCollapsed }) {
   const { user } = useAuth();
-  const navItems = NAV_BY_ROLE[user?.role] || [];
+  const navItems = getNavItems(user);
 
   return (
     <aside

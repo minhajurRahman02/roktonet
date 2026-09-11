@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { logRequestEvent } = require('../services/requestEvents');
 const { notifyOrg } = require('../services/notificationService');
 
@@ -14,11 +14,49 @@ const { notifyOrg } = require('../services/notificationService');
 // this is the NGO looking at its own roster's activity, which it already
 // has full access to via GET /api/donors; this endpoint is about the
 // mobilization/request side, not a second donor-contact-reveal surface.
-router.get('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
-  let orgId = req.user.org_id;
-  if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
-
+// GET /api/mobilizations - two different scoping modes depending on role.
+// For ngo/admin: all mobilizations for the caller's OWN donors, across
+// every request -- powers the NGO's Active Mobilizations page. For
+// donor: just the caller's own invites, extended to include the
+// requesting org's contact info (name/district/phone/email) on EVERY
+// row, not just confirmed ones -- deliberately asymmetric with how
+// donor contact stays hidden from hospitals until confirmed. A hospital
+// isn't a private individual the way a donor is; there's no equivalent
+// reason to make a donor wait until they've committed before finding out
+// who's asking and how to reach them.
+router.get('/', requireAuth, async (req, res) => {
   try {
+    if (req.user.role === 'donor') {
+      const donorResult = await pool.query('SELECT donor_id FROM donors WHERE user_id = $1', [
+        req.user.user_id,
+      ]);
+      if (donorResult.rows.length === 0) {
+        return res.status(400).json({ error: 'No donor record linked to this account' });
+      }
+      const donorId = donorResult.rows[0].donor_id;
+
+      const result = await pool.query(
+        `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
+                r.request_id, r.blood_type, r.component, r.urgency_tier,
+                o.name AS requesting_org_name, o.district AS requesting_org_district,
+                o.contact_phone AS requesting_org_phone, o.contact_email AS requesting_org_email
+         FROM donor_mobilizations dm
+         JOIN requests r ON r.request_id = dm.request_id
+         JOIN organizations o ON o.org_id = r.org_id
+         WHERE dm.donor_id = $1
+         ORDER BY dm.mobilization_id DESC`,
+        [donorId]
+      );
+      return res.json(result.rows);
+    }
+
+    if (!['ngo', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: "This action requires one of these roles: ngo, admin, donor" });
+    }
+
+    let orgId = req.user.org_id;
+    if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
+
     const result = await pool.query(
       `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
               d.full_name AS donor_name, d.blood_type AS donor_blood_type,
@@ -84,12 +122,12 @@ router.get('/:requestId', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/mobilizations/:id/respond - donor confirms or declines an invite.
-// Still no ownership check on this one -- deliberately deferred to the
-// Donor dashboard build (Phase 7.8), where a donor will be authenticated
-// and this can check they're responding to their own invite. Out of scope
-// for the hospital-side work this session.
-router.post('/:id/respond', async (req, res) => {
+// POST /api/mobilizations/:id/respond - donor confirms or declines an
+// invite. Previously had NO authentication at all -- anyone who knew or
+// guessed a mobilization_id could confirm or decline on someone else's
+// behalf. Fixed: requires auth, and the caller's own linked donor_id
+// must match the mobilization being responded to.
+router.post('/:id/respond', requireAuth, async (req, res) => {
   const { invite_status, slot_date } = req.body;
 
   if (!['confirmed', 'declined'].includes(invite_status)) {
@@ -97,6 +135,23 @@ router.post('/:id/respond', async (req, res) => {
   }
 
   try {
+    const existing = await pool.query('SELECT donor_id, request_id FROM donor_mobilizations WHERE mobilization_id = $1', [
+      req.params.id,
+    ]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Mobilization record not found' });
+    }
+
+    if (req.user.role !== 'admin') {
+      const donorResult = await pool.query('SELECT donor_id FROM donors WHERE user_id = $1', [
+        req.user.user_id,
+      ]);
+      const callerDonorId = donorResult.rows[0]?.donor_id;
+      if (!callerDonorId || callerDonorId !== existing.rows[0].donor_id) {
+        return res.status(403).json({ error: 'You do not have access to this invite' });
+      }
+    }
+
     const result = await pool.query(
       `UPDATE donor_mobilizations
        SET invite_status = $1, slot_date = $2
@@ -104,9 +159,6 @@ router.post('/:id/respond', async (req, res) => {
        RETURNING *`,
       [invite_status, slot_date || null, req.params.id]
     );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Mobilization record not found' });
-    }
     const mobilization = result.rows[0];
 
     // Anonymized -- no donor identity in the log, matching the same

@@ -25,6 +25,14 @@ import NewDrive from './pages/ngo/NewDrive';
 import DriveDetail from './pages/ngo/DriveDetail';
 import DriveLog from './pages/ngo/DriveLog';
 import NgoMobilizations from './pages/ngo/Mobilizations';
+import DonorOverview from './pages/donor/Overview';
+import DonationHistory from './pages/donor/DonationHistory';
+import MyInvites from './pages/donor/MyInvites';
+import MyNgo from './pages/donor/MyNgo';
+import DonorNgoDetail from './pages/donor/NgoDetail';
+import BrowseDrives from './pages/donor/BrowseDrives';
+import DriveInfo from './pages/donor/DriveInfo';
+import MyProfile from './pages/MyProfile';
 import AdminDashboard from './pages/AdminDashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -33,11 +41,14 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Unauthorized from './pages/Unauthorized';
 
-// Roles still waiting on their own dashboard (Phase 7.8) land in the
-// shared hospital shell as a placeholder. Bank and NGO have both
-// graduated out of this list now -- donor remains until its dashboard
-// is built.
-const HOSPITAL_SHELL_ROLES = ['hospital', 'donor'];
+// Every role now has its own real dashboard -- this constant only still
+// exists because Hospital's routes were originally built to allow a
+// shared list of roles (in case others landed here as a placeholder
+// first, which bank/ngo/donor all did at various points). Now that
+// nothing else does, this is just ['hospital'], kept as a named
+// constant rather than inlining the literal so a future role added here
+// as a temporary placeholder has an obvious, named place to go.
+const HOSPITAL_SHELL_ROLES = ['hospital'];
 
 export default function App() {
   return (
@@ -314,6 +325,106 @@ export default function App() {
                 <RoleRoute allowedRoles={['ngo']}>
                   <AppShell crumbs={['NGO', 'Mobilizations']}>
                     <NgoMobilizations />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Universal -- reachable via the TopBar avatar menu for every
+              role, not tied to any one role's URL prefix. */}
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <AppShell crumbs={['My Profile']}>
+                  <MyProfile />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Donor -- real dashboard (Phase 7.8, the last of the four
+              role builds before Admin). */}
+          <Route
+            path="/donor"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'Overview']}>
+                    <DonorOverview />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/history"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'Donation History']}>
+                    <DonationHistory />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/invites"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'My Invites']}>
+                    <MyInvites />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/ngo"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'My NGO']}>
+                    <MyNgo />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/ngo/:orgId"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'My NGO', 'Detail']}>
+                    <DonorNgoDetail />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/browse"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'Browse Drives']}>
+                    <BrowseDrives />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/browse/:id"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'Browse Drives', 'Detail']}>
+                    <DriveInfo />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

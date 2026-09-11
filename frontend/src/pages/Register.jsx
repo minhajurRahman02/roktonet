@@ -176,7 +176,7 @@ export default function Register() {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className={isOrgRole ? 'grid grid-cols-2 gap-3' : ''}>
           <FormField label="Role" htmlFor="role">
             <Select id="role" value={form.role} onChange={(e) => updateField('role', e.target.value)}>
               <option value="hospital">Hospital</option>
@@ -186,16 +186,16 @@ export default function Register() {
             </Select>
           </FormField>
 
-          <FormField label="Invite code" htmlFor="invite_code" error={errors.invite_code}>
-            <Input
-              id="invite_code"
-              value={form.invite_code}
-              onChange={(e) => updateField('invite_code', e.target.value)}
-              error={!!errors.invite_code}
-              disabled={!isOrgRole}
-              placeholder={isOrgRole ? undefined : 'Not needed'}
-            />
-          </FormField>
+          {isOrgRole && (
+            <FormField label="Invite code" htmlFor="invite_code" error={errors.invite_code}>
+              <Input
+                id="invite_code"
+                value={form.invite_code}
+                onChange={(e) => updateField('invite_code', e.target.value)}
+                error={!!errors.invite_code}
+              />
+            </FormField>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -220,76 +220,74 @@ export default function Register() {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Blood type" htmlFor="blood_type" error={errors.blood_type}>
-            <Select
-              id="blood_type"
-              value={form.blood_type}
-              onChange={(e) => updateField('blood_type', e.target.value)}
-              error={!!errors.blood_type}
-              disabled={!isDonorRole}
-            >
-              <option value="">{isDonorRole ? 'Select…' : 'Not needed'}</option>
-              {DONOR_BLOOD_TYPES.map((bt) => (
-                <option key={bt} value={bt}>{bt}</option>
-              ))}
-            </Select>
-          </FormField>
+        {isDonorRole && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Blood type" htmlFor="blood_type" error={errors.blood_type}>
+                <Select
+                  id="blood_type"
+                  value={form.blood_type}
+                  onChange={(e) => updateField('blood_type', e.target.value)}
+                  error={!!errors.blood_type}
+                >
+                  <option value="">Select…</option>
+                  {DONOR_BLOOD_TYPES.map((bt) => (
+                    <option key={bt} value={bt}>{bt}</option>
+                  ))}
+                </Select>
+              </FormField>
 
-          <FormField label="Sex" htmlFor="sex" error={errors.sex}>
-            <Select
-              id="sex"
-              value={form.sex}
-              onChange={(e) => updateField('sex', e.target.value)}
-              error={!!errors.sex}
-              disabled={!isDonorRole}
-            >
-              <option value="">{isDonorRole ? 'Select…' : 'Not needed'}</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </Select>
-          </FormField>
-        </div>
+              <FormField label="Sex" htmlFor="sex" error={errors.sex}>
+                <Select
+                  id="sex"
+                  value={form.sex}
+                  onChange={(e) => updateField('sex', e.target.value)}
+                  error={!!errors.sex}
+                >
+                  <option value="">Select…</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </Select>
+              </FormField>
+            </div>
 
-        <FormField label="Phone number" htmlFor="phone_number">
-          <Input
-            id="phone_number"
-            type="tel"
-            value={form.phone_number}
-            onChange={(e) => updateField('phone_number', e.target.value)}
-            disabled={!isDonorRole}
-            placeholder={isDonorRole ? '+8801XXXXXXXXX' : 'Not needed'}
-          />
-        </FormField>
+            <FormField label="Phone number" htmlFor="phone_number">
+              <Input
+                id="phone_number"
+                type="tel"
+                value={form.phone_number}
+                onChange={(e) => updateField('phone_number', e.target.value)}
+                placeholder="+8801XXXXXXXXX"
+              />
+            </FormField>
 
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Current district" htmlFor="current_district" error={errors.current_district}>
-            <DatalistInput
-              id="current_district"
-              value={form.current_district}
-              onChange={(e) => updateField('current_district', e.target.value)}
-              error={!!errors.current_district}
-              disabled={!isDonorRole}
-              placeholder={isDonorRole ? 'Start typing…' : 'Not needed'}
-              options={districts}
-              autoComplete="off"
-            />
-          </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Current district" htmlFor="current_district" error={errors.current_district}>
+                <DatalistInput
+                  id="current_district"
+                  value={form.current_district}
+                  onChange={(e) => updateField('current_district', e.target.value)}
+                  error={!!errors.current_district}
+                  placeholder="Start typing…"
+                  options={districts}
+                  autoComplete="off"
+                />
+              </FormField>
 
-          <FormField label="Current thana / upazila" htmlFor="current_thana">
-            <DatalistInput
-              id="current_thana"
-              value={form.current_thana}
-              onChange={(e) => updateField('current_thana', e.target.value)}
-              disabled={!isDonorRole || !form.current_district.trim()}
-              placeholder={
-                !isDonorRole ? 'Not needed' : !form.current_district.trim() ? 'Pick a district first' : 'Start typing…'
-              }
-              options={thanas}
-              autoComplete="off"
-            />
-          </FormField>
-        </div>
+              <FormField label="Current thana / upazila" htmlFor="current_thana">
+                <DatalistInput
+                  id="current_thana"
+                  value={form.current_thana}
+                  onChange={(e) => updateField('current_thana', e.target.value)}
+                  disabled={!form.current_district.trim()}
+                  placeholder={!form.current_district.trim() ? 'Pick a district first' : 'Start typing…'}
+                  options={thanas}
+                  autoComplete="off"
+                />
+              </FormField>
+            </div>
+          </>
+        )}
 
         {submitError && (
           <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">
