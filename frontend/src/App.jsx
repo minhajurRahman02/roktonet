@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { warmEngine } from './api/engine';
 import ProtectedRoute from './routing/ProtectedRoute';
 import RoleRoute from './routing/RoleRoute';
 import AppShell from './components/organisms/AppShell';
@@ -51,6 +53,16 @@ import Unauthorized from './pages/Unauthorized';
 const HOSPITAL_SHELL_ROLES = ['hospital'];
 
 export default function App() {
+  // Wake the optimization engine as early as possible -- see api/engine.js
+  // for the full reasoning. Placed here rather than on the Landing page so
+  // it also covers someone arriving straight at /login or a bookmarked
+  // dashboard URL. Runs once per page load, not per navigation, since App
+  // mounts once. Fire-and-forget by design: nothing below it waits on it,
+  // and it cannot fail in a way the user ever sees.
+  useEffect(() => {
+    warmEngine();
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>
