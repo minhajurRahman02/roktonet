@@ -136,6 +136,7 @@ async function triggerDonorFallback(request) {
 
   return { request_id: request.request_id, invited: donorsResult.rows.length, fulfillment_path: fulfillmentPath };
 }
+
 async function escalateStaleMobilizations() {
   const staleResult = await pool.query(`
     SELECT r.request_id, r.org_id, r.blood_type, r.component, r.urgency_tier
