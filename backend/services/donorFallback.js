@@ -137,28 +137,6 @@ async function triggerDonorFallback(request) {
   return { request_id: request.request_id, invited: donorsResult.rows.length, fulfillment_path: fulfillmentPath };
 }
 
-async function escalateStaleMobilizations() {
-  const staleResult = await pool.query(`
-    SELECT r.request_id, r.org_id, r.blood_type, r.component, r.urgency_tier
-    FROM requests r
-    JOIN donor_mobilizations dm ON dm.request_id = r.request_id
-    WHERE r.fulfillment_path IN ('donor_fallback', 'parallel_critical')
-    GROUP BY r.request_id, r.org_id, r.blood_type, r.component, r.urgency_tier
-    HAVING COUNT(*) FILTER (WHERE dm.invite_status = 'confirmed') = 0
-       AND COUNT(*) FILTER (WHERE dm.invite_status = 'invited') = 0
-  `);
 
-  const results = [];
-  for (const request of staleResult.rows) {
-    await logRequestEvent(
-      request.request_id,
-      'escalation_triggered',
-      'All previously invited donors declined — inviting a new batch'
-    );
-    const outcome = await triggerDonorFallback(request);
-    results.push(outcome);
-  }
-  return results;
-}
 
 module.exports = { triggerDonorFallback, escalateStaleMobilizations };
