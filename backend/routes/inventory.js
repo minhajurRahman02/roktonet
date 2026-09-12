@@ -149,3 +149,38 @@ router.post('/:unit_id/dispatch', requireAuth, requireRole('bank', 'ngo', 'admin
       unit.unit_id,
     ]);
 
+    // Find which request(s) this unit fulfills, to notify the right
+    // hospital and log the event on the right request. A unit is
+    // allocated to at most one request in practice (allocation_records
+    // ties a unit to the request it was assigned to).
+    const allocationResult = await pool.query(
+      `SELECT ar.request_id, r.org_id AS hospital_org_id, r.urgency_tier
+       FROM allocation_records ar
+       JOIN requests r ON r.request_id = ar.request_id
+       WHERE ar.unit_id = $1`,
+      [unit.unit_id]
+    );
+
+    for (const allocation of allocationResult.rows) {
+      await logRequestEvent(
+        allocation.request_id,
+        'dispatch_needed', // reusing the planned event_type name from the notifications design
+        'A unit has been dispatched and is on its way'
+      );
+      await notifyOrg(
+        allocation.hospital_org_id,
+        'dispatch_needed',
+        'A blood unit for your request has been dispatched.',
+        allocation.request_id,
+        allocation.urgency_tier
+      );
+    }
+
+    res.json({ unit_id: unit.unit_id, status: 'dispatched' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
