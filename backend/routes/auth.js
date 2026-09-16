@@ -264,7 +264,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT user_id, org_id, role, email, password_hash, full_name, is_verified
+      `SELECT user_id, org_id, role, email, password_hash, full_name, is_verified, is_active
        FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
@@ -281,6 +281,14 @@ router.post('/login', async (req, res) => {
     const passwordMatches = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatches) {
       return res.status(401).json(genericFailure);
+    }
+
+    // Deactivated accounts (admin action, spec 2.1) get a distinct, honest
+    // message -- unlike the enumeration-safe generic failure above, the
+    // caller has already proven they know the password, so there's no
+    // leak in telling them why they can't proceed.
+    if (user.is_active === false) {
+      return res.status(403).json({ error: 'This account has been deactivated. Contact an administrator.' });
     }
 
     // Unverified accounts can authenticate their password but get no token --

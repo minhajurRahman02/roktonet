@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { logAdminAction } = require('../services/adminAudit');
+const crypto = require('crypto');
 const { resolveThana } = require('../services/locationResolver');
 
 // Never selected in any query below -- invite_code should never come back
@@ -29,11 +31,28 @@ router.get('/', requireAuth, async (req, res) => {
     conditions.push(`name ILIKE $${values.length}`);
   }
 
+  if (req.query.district) {
+    values.push(req.query.district);
+    conditions.push(`district = $${values.length}`);
+  }
+
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
+    // Admin (7.7) additionally gets invite_code -- the one thing the
+    // original spec said admin should see that nobody else may -- plus
+    // per-org counts for the system-wide Organizations table. Every other
+    // role keeps the SAFE_COLUMNS-only shape exactly as before.
+    const isAdmin = req.user.role === 'admin';
     const result = await pool.query(
-      `SELECT ${SAFE_COLUMNS} FROM organizations ${whereClause} ORDER BY name`,
+      isAdmin
+        ? `SELECT ${SAFE_COLUMNS.split(', ').map((c) => 'o.' + c).join(', ')}, o.invite_code,
+                  (SELECT COUNT(*) FROM users u WHERE u.org_id = o.org_id)::int AS user_count,
+                  (SELECT COUNT(*) FROM inventory_units iu WHERE iu.org_id = o.org_id AND iu.status = 'available')::int AS available_units,
+                  (SELECT COUNT(*) FROM requests r WHERE r.org_id = o.org_id AND r.fulfillment_path IS NULL AND r.cancelled_at IS NULL)::int AS open_requests,
+                  (SELECT COUNT(*) FROM donors d WHERE d.org_id = o.org_id)::int AS donor_count
+           FROM organizations o ${whereClause.replace(/\b(org_type|name|district) =/g, 'o.$1 =').replace('name ILIKE', 'o.name ILIKE')} ORDER BY o.name`
+        : `SELECT ${SAFE_COLUMNS} FROM organizations ${whereClause} ORDER BY name`,
       values
     );
     res.json(result.rows);
@@ -72,13 +91,27 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
     return res.status(400).json({ error: 'name, org_type, and district are all required' });
   }
 
+  if (!['hospital', 'blood_bank', 'ngo'].includes(org_type)) {
+    return res.status(400).json({ error: "org_type must be one of hospital, blood_bank, ngo" });
+  }
+
   try {
+    // 7.7: an org created here now gets a real invite_code immediately --
+    // same format migration_auth.sql used to backfill the seed orgs (8
+    // uppercase hex chars), so staff can actually register for it. Before
+    // this, API-created orgs had a NULL code and were unjoinable.
+    const inviteCode = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const { contact_phone, contact_email, thana } = req.body;
+    const resolved = thana ? await resolveThana(thana, district) : null;
     const result = await pool.query(
-      `INSERT INTO organizations (name, org_type, district)
-       VALUES ($1, $2, $3)
-       RETURNING ${SAFE_COLUMNS}`,
-      [name, org_type, district]
+      `INSERT INTO organizations (name, org_type, district, thana, thana_id, contact_phone, contact_email, invite_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${SAFE_COLUMNS}, invite_code`,
+      [name, org_type, district, thana || null, resolved ? resolved.thana_id : null, contact_phone || null, contact_email || null, inviteCode]
     );
+    await logAdminAction(req.user.user_id, 'org_created', {
+      targetType: 'organization', targetId: result.rows[0].org_id, details: { name, org_type, district },
+    });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -132,6 +165,20 @@ router.patch('/:id', requireAuth, async (req, res) => {
          RETURNING ${SAFE_COLUMNS}`,
         [contact_phone, contact_email, req.params.id]
       );
+    }
+    // 7.7: admin may also rename. Kept out of the member path -- an org's
+    // name is its identity across every request/allocation record.
+    if (req.user.role === 'admin' && req.body.name !== undefined && String(req.body.name).trim()) {
+      result = await pool.query(
+        `UPDATE organizations SET name = $1 WHERE org_id = $2 RETURNING ${SAFE_COLUMNS}, invite_code`,
+        [String(req.body.name).trim(), req.params.id]
+      );
+    }
+    if (req.user.role === 'admin') {
+      await logAdminAction(req.user.user_id, 'org_updated', {
+        targetType: 'organization', targetId: req.params.id,
+        details: Object.fromEntries(Object.entries(req.body).filter(([, v]) => v !== undefined)),
+      });
     }
     res.json(result.rows[0]);
   } catch (err) {

@@ -22,18 +22,45 @@ function isOwningNgo(donor, user) {
 // phone" flow during a live drive.
 router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, res) => {
   let orgId = req.user.org_id;
-  if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
+  if (req.user.role === 'admin') orgId = req.query.org_id || null;
 
-  const conditions = ['org_id = $1'];
-  const values = [orgId];
+  // Before 7.7, an admin without ?org_id= hit `org_id = NULL`, which
+  // matches nothing -- admin literally could not list all donors. Now
+  // admin is unscoped unless they filter; every other role stays locked
+  // to their own org exactly as before.
+  const conditions = [];
+  const values = [];
+  if (orgId) {
+    values.push(orgId);
+    conditions.push(`d.org_id = $${values.length}`);
+  } else if (req.user.role !== 'admin') {
+    return res.status(400).json({ error: 'You must belong to an organization' });
+  }
   if (req.query.phone) {
     values.push(`%${req.query.phone}%`);
-    conditions.push(`phone_number LIKE $${values.length}`);
+    conditions.push(`d.phone_number LIKE $${values.length}`);
   }
+  // Admin-scale filters (7.7); harmless for scoped roles.
+  for (const [param, column] of [['blood_type', 'd.blood_type'], ['eligibility_status', 'd.eligibility_status'], ['district', 'd.current_district'], ['sex', 'd.sex']]) {
+    if (req.query[param]) {
+      values.push(req.query[param]);
+      conditions.push(`${column} = $${values.length}`);
+    }
+  }
+  if (req.query.search) {
+    values.push(`%${req.query.search}%`);
+    conditions.push(`(d.full_name ILIKE $${values.length} OR d.email ILIKE $${values.length})`);
+  }
+  if (req.query.has_login === 'true') conditions.push('d.user_id IS NOT NULL');
+  if (req.query.has_login === 'false') conditions.push('d.user_id IS NULL');
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
     const result = await pool.query(
-      `SELECT * FROM donors WHERE ${conditions.join(' AND ')} ORDER BY full_name`,
+      `SELECT d.*, o.name AS org_name FROM donors d
+       LEFT JOIN organizations o ON o.org_id = d.org_id
+       ${whereClause} ORDER BY d.full_name`,
       values
     );
     res.json(result.rows);

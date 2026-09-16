@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { logAdminAction } = require('../services/adminAudit');
 const { notifyOrg } = require('../services/notificationService');
 const { logRequestEvent } = require('../services/requestEvents');
 
@@ -57,27 +58,52 @@ router.get('/', requireAuth, async (req, res) => {
     org_id = req.user.org_id;
   }
 
+  const { status, expiring_within_days, district } = req.query;
   const conditions = [];
   const values = [];
 
   if (org_id) {
     values.push(org_id);
-    conditions.push(`org_id = $${values.length}`);
+    conditions.push(`iu.org_id = $${values.length}`);
   }
   if (blood_type) {
     values.push(blood_type);
-    conditions.push(`blood_type = $${values.length}`);
+    conditions.push(`iu.blood_type = $${values.length}`);
   }
   if (component) {
     values.push(component);
-    conditions.push(`component = $${values.length}`);
+    conditions.push(`iu.component = $${values.length}`);
+  }
+  // Admin-scale filters (7.7). Scoped roles can use them too -- they just
+  // narrow within their own org.
+  if (status) {
+    values.push(status);
+    conditions.push(`iu.status = $${values.length}`);
+  }
+  if (district) {
+    values.push(district);
+    conditions.push(`o.district = $${values.length}`);
+  }
+  if (expiring_within_days !== undefined && expiring_within_days !== '') {
+    const days = parseInt(expiring_within_days, 10);
+    if (Number.isNaN(days) || days < 0) {
+      return res.status(400).json({ error: 'expiring_within_days must be a non-negative integer' });
+    }
+    values.push(days);
+    conditions.push(`iu.status = 'available' AND iu.expiry_date <= CURRENT_DATE + ($${values.length} || ' days')::interval`);
   }
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
+    // Joined with the source org so admin's system-wide table can show
+    // where every unit lives; role pages ignore the extra columns.
     const result = await pool.query(
-      `SELECT * FROM inventory_units ${whereClause} ORDER BY expiry_date`,
+      `SELECT iu.*, o.name AS org_name, o.org_type, o.district AS org_district,
+              (iu.expiry_date - CURRENT_DATE)::int AS days_to_expiry
+       FROM inventory_units iu
+       JOIN organizations o ON o.org_id = iu.org_id
+       ${whereClause} ORDER BY iu.expiry_date`,
       values
     );
     res.json(result.rows);
@@ -177,6 +203,74 @@ router.post('/:unit_id/dispatch', requireAuth, requireRole('bank', 'ngo', 'admin
     }
 
     res.json({ unit_id: unit.unit_id, status: 'dispatched' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/inventory/:unit_id -- admin only (Phase 7.7, spec 4.3).
+// Editable: expiry_date; status (forward-only past dispatch); blood_type
+// and component ONLY while the unit is still 'available' -- once allocated,
+// its type was a solver input, and changing it would silently invalidate
+// the allocation that depends on it.
+const STATUS_ORDER = ['available', 'reserved', 'dispatched', 'delivered', 'expired'];
+const TERMINAL_STATUSES = ['dispatched', 'delivered'];
+const VALID_BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+const VALID_COMPONENTS = ['whole_blood', 'platelets', 'plasma'];
+
+router.patch('/:unit_id', requireAuth, requireRole('admin'), async (req, res) => {
+  const { expiry_date, status, blood_type, component } = req.body;
+  try {
+    const existing = await pool.query(
+      'SELECT unit_id, org_id, blood_type, component, status, expiry_date FROM inventory_units WHERE unit_id = $1',
+      [req.params.unit_id]
+    );
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Inventory unit not found' });
+    const unit = existing.rows[0];
+
+    const sets = [];
+    const values = [];
+    const changes = {};
+
+    if (status !== undefined) {
+      if (!STATUS_ORDER.includes(status)) {
+        return res.status(400).json({ error: `status must be one of ${STATUS_ORDER.join(', ')}` });
+      }
+      if (TERMINAL_STATUSES.includes(unit.status) && STATUS_ORDER.indexOf(status) < STATUS_ORDER.indexOf(unit.status)) {
+        return res.status(400).json({ error: `A ${unit.status} unit cannot be moved back to ${status}` });
+      }
+      values.push(status); sets.push(`status = $${values.length}`); changes.status = { from: unit.status, to: status };
+    }
+    if (expiry_date !== undefined) {
+      if (Number.isNaN(new Date(expiry_date).getTime())) return res.status(400).json({ error: 'expiry_date must be a valid date' });
+      values.push(expiry_date); sets.push(`expiry_date = $${values.length}`); changes.expiry_date = { from: unit.expiry_date, to: expiry_date };
+    }
+    if (blood_type !== undefined || component !== undefined) {
+      if (unit.status !== 'available') {
+        return res.status(400).json({ error: `blood_type/component can only be changed while the unit is 'available' (currently '${unit.status}')` });
+      }
+      if (blood_type !== undefined) {
+        if (!VALID_BLOOD_TYPES.includes(blood_type)) return res.status(400).json({ error: `blood_type must be one of ${VALID_BLOOD_TYPES.join(', ')}` });
+        values.push(blood_type); sets.push(`blood_type = $${values.length}`); changes.blood_type = { from: unit.blood_type, to: blood_type };
+      }
+      if (component !== undefined) {
+        if (!VALID_COMPONENTS.includes(component)) return res.status(400).json({ error: `component must be one of ${VALID_COMPONENTS.join(', ')}` });
+        values.push(component); sets.push(`component = $${values.length}`); changes.component = { from: unit.component, to: component };
+      }
+    }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+    values.push(unit.unit_id);
+    const result = await pool.query(
+      `UPDATE inventory_units SET ${sets.join(', ')} WHERE unit_id = $${values.length} RETURNING *`,
+      values
+    );
+    await logAdminAction(req.user.user_id, 'inventory_updated', {
+      targetType: 'inventory_unit', targetId: unit.unit_id, details: { org_id: unit.org_id, changes },
+    });
+    res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

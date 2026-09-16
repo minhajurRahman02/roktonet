@@ -7,12 +7,18 @@ const { requireAuth } = require('../middleware/auth');
 // everything (including admin-wide broadcasts, org_id IS NULL) if admin.
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    // 7.7 scope change (spec 2.6): a notification reaches a user if it's
+    // addressed to their org OR to them personally (user_id -- how admin
+    // broadcasts are delivered). Before this, a donor (org_id = NULL on
+    // their users row) could never receive anything at all. Admin sees
+    // its own personal notifications only -- the firehose of every org's
+    // notifications is not what an inbox is for; admin has the activity
+    // feed and audit log for system-wide visibility.
     const result = await pool.query(
-      isAdmin
-        ? `SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50`
-        : `SELECT * FROM notifications WHERE org_id = $1 ORDER BY created_at DESC LIMIT 50`,
-      isAdmin ? [] : [req.user.org_id]
+      `SELECT * FROM notifications
+       WHERE user_id = $1 OR ($2::uuid IS NOT NULL AND org_id = $2 AND user_id IS NULL)
+       ORDER BY created_at DESC LIMIT 50`,
+      [req.user.user_id, req.user.org_id]
     );
     res.json(result.rows);
   } catch (err) {
@@ -24,14 +30,15 @@ router.get('/', requireAuth, async (req, res) => {
 // POST /api/notifications/:id/read
 router.post('/:id/read', requireAuth, async (req, res) => {
   try {
-    const existing = await pool.query('SELECT org_id FROM notifications WHERE notification_id = $1', [
+    const existing = await pool.query('SELECT org_id, user_id FROM notifications WHERE notification_id = $1', [
       req.params.id,
     ]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Notification not found' });
     }
 
-    const isOwner = existing.rows[0].org_id === req.user.org_id;
+    const n = existing.rows[0];
+    const isOwner = (n.user_id && n.user_id === req.user.user_id) || (!n.user_id && n.org_id && n.org_id === req.user.org_id);
     const isAdmin = req.user.role === 'admin';
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ error: 'You do not have access to this notification' });

@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { runAllocationBatch } = require('../services/engineClient');
 const { logRequestEvent } = require('../services/requestEvents');
+const { logAdminAction } = require('../services/adminAudit');
 const { notifyOrg } = require('../services/notificationService');
 
 // POST /api/requests - submit a new blood request.
@@ -89,7 +90,7 @@ router.post('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (r
 
 // GET /api/requests - list + filter (Phase 7.7)
 router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (req, res) => {
-  const { urgency_tier, fulfillment_path } = req.query;
+  const { urgency_tier, fulfillment_path, district, from, to, cancelled, blood_type } = req.query;
   let { org_id } = req.query;
 
   // Both hospital and bank users are auto-scoped to their own org -- a
@@ -104,22 +105,53 @@ router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (re
 
   if (org_id) {
     values.push(org_id);
-    conditions.push(`org_id = $${values.length}`);
+    conditions.push(`r.org_id = $${values.length}`);
   }
   if (urgency_tier) {
     values.push(urgency_tier);
-    conditions.push(`urgency_tier = $${values.length}`);
+    conditions.push(`r.urgency_tier = $${values.length}`);
   }
   if (fulfillment_path) {
     values.push(fulfillment_path);
-    conditions.push(`fulfillment_path = $${values.length}`);
+    conditions.push(`r.fulfillment_path = $${values.length}`);
   }
+  if (blood_type) {
+    values.push(blood_type);
+    conditions.push(`r.blood_type = $${values.length}`);
+  }
+  // Admin-only cross-org filters (7.7). Harmless for scoped roles -- they
+  // just narrow within their own org.
+  if (district) {
+    values.push(district);
+    conditions.push(`o.district = $${values.length}`);
+  }
+  if (from) {
+    values.push(from);
+    conditions.push(`r.created_at >= $${values.length}`);
+  }
+  if (to) {
+    values.push(to);
+    conditions.push(`r.created_at <= ($${values.length}::date + INTERVAL '1 day')`);
+  }
+  // ?cancelled=true -> only cancelled; ?cancelled=false -> exclude cancelled;
+  // omitted -> everything (existing behaviour, cancelled rows carry the column).
+  if (cancelled === 'true') conditions.push('r.cancelled_at IS NOT NULL');
+  if (cancelled === 'false') conditions.push('r.cancelled_at IS NULL');
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
+    // Joined with the org so every row carries hospital name/district and a
+    // units_allocated count -- the admin system-wide table needs both, and
+    // the existing role pages simply ignore the extra columns.
     const result = await pool.query(
-      `SELECT * FROM requests ${whereClause} ORDER BY created_at DESC`,
+      `SELECT r.*, o.name AS org_name, o.district AS org_district, o.org_type,
+              COALESCE(a.units_allocated, 0)::int AS units_allocated
+       FROM requests r
+       JOIN organizations o ON o.org_id = r.org_id
+       LEFT JOIN (SELECT request_id, COUNT(*) AS units_allocated FROM allocation_records GROUP BY request_id) a
+         ON a.request_id = r.request_id
+       ${whereClause} ORDER BY r.created_at DESC`,
       values
     );
     res.json(result.rows);
@@ -290,6 +322,65 @@ router.get('/:id/events', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/requests/:id/cancel -- admin only (Phase 7.7, spec 2.3).
+// Cancels a request and releases anything still reserved for it back to
+// 'available'. Units already 'dispatched'/'delivered' are left alone --
+// those physically left the building. The engine's pending query excludes
+// cancelled rows (engineClient.js), so a cancelled request is never solved.
+router.post('/:id/cancel', requireAuth, requireRole('admin'), async (req, res) => {
+  const reason = (req.body?.reason || '').trim() || null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      'SELECT request_id, org_id, urgency_tier, fulfillment_path, cancelled_at FROM requests WHERE request_id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    const request = existing.rows[0];
+    if (request.cancelled_at) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Request is already cancelled' });
+    }
+
+    const released = await client.query(
+      `UPDATE inventory_units SET status = 'available'
+       WHERE status = 'reserved'
+         AND unit_id IN (SELECT unit_id FROM allocation_records WHERE request_id = $1)
+       RETURNING unit_id`,
+      [request.request_id]
+    );
+    await client.query(
+      'UPDATE requests SET cancelled_at = NOW(), cancelled_by = $1 WHERE request_id = $2',
+      [req.user.user_id, request.request_id]
+    );
+    await client.query('COMMIT');
+
+    await logRequestEvent(
+      request.request_id,
+      'request_cancelled',
+      `Request cancelled by an administrator${released.rows.length ? ` — ${released.rows.length} reserved unit(s) released back to inventory` : ''}`,
+      { released_units: released.rows.length, reason }
+    );
+    await logAdminAction(req.user.user_id, 'request_cancelled', {
+      targetType: 'request', targetId: request.request_id,
+      details: { reason, released_units: released.rows.length, urgency_tier: request.urgency_tier, previous_path: request.fulfillment_path },
+    });
+    await notifyOrg(request.org_id, 'request_cancelled', 'One of your requests was cancelled by an administrator.', request.request_id);
+
+    res.json({ request_id: request.request_id, cancelled: true, released_units: released.rows.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -143,6 +143,7 @@ async function escalateStaleMobilizations() {
     FROM requests r
     JOIN donor_mobilizations dm ON dm.request_id = r.request_id
     WHERE r.fulfillment_path IN ('donor_fallback', 'parallel_critical')
+      AND r.cancelled_at IS NULL
     GROUP BY r.request_id, r.org_id, r.blood_type, r.component, r.urgency_tier
     HAVING COUNT(*) FILTER (WHERE dm.invite_status = 'confirmed') = 0
        AND COUNT(*) FILTER (WHERE dm.invite_status = 'invited') = 0
