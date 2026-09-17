@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -12,7 +12,18 @@ const NAV_BY_ROLE = {
     { to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/hospital/requests', label: 'My Requests', icon: ListChecks },
   ],
-  admin: [{ to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true }],
+  admin: [
+    { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/admin/users', label: 'Users', icon: UserCog },
+    { to: '/admin/requests', label: 'Requests', icon: ListChecks },
+    { to: '/admin/inventory', label: 'Inventory', icon: Droplets },
+    { to: '/admin/organizations', label: 'Organizations', icon: Building2 },
+    { to: '/admin/donors', label: 'Donors', icon: Heart },
+    { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
+    { to: '/admin/broadcasts', label: 'Broadcasts', icon: Megaphone },
+    { to: '/admin/audit', label: 'Audit Log', icon: ScrollText },
+    { to: '/admin/reports', label: 'Reports', icon: Download },
+  ],
   bank: [
     { to: '/blood-bank', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/blood-bank/inventory', label: 'My Inventory', icon: Droplets },

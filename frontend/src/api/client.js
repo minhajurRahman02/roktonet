@@ -7,7 +7,20 @@
 // forwards them to localhost:3000, making them same-origin. In a
 // production build there's no dev server to proxy through, so we need
 // the real deployed backend URL -- set via VITE_API_URL at build time.
+import { getViewAs } from '../utils/viewAs';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+export { API_BASE };
+
+// Admin view-as (Phase 7.7): when a read-only token is active it is sent
+// as a Bearer header on every request. The backend gives Bearer precedence
+// over the cookie, so every page renders as the viewed user while the
+// admin's own cookie session stays untouched underneath.
+export function authHeaders() {
+  const viewAs = getViewAs();
+  return viewAs ? { Authorization: `Bearer ${viewAs.token}` } : {};
+}
 
 /**
  * @param {string} path - e.g. '/api/auth/login'
@@ -29,6 +42,7 @@ export async function apiFetch(path, options = {}) {
     ...options,
     headers: {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...authHeaders(),
       ...options.headers,
     },
   });

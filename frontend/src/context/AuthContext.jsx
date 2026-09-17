@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import * as authApi from '../api/auth';
+import { getViewAs, setViewAs, clearViewAs } from '../utils/viewAs';
 
 const AuthContext = createContext(undefined);
 
@@ -11,6 +12,11 @@ export function AuthProvider({ children }) {
   // "still checking" state, not just logged-in/logged-out (see
   // frontend_standards.md's 5-state matrix -- this IS the loading state).
   const [isLoading, setIsLoading] = useState(true);
+  // Admin view-as (Phase 7.7): when set, every API call carries the
+  // read-only token (see api/client.js) and `user` becomes the VIEWED
+  // user, so the viewed role's own dashboard renders unchanged. The
+  // admin's real cookie session is untouched underneath.
+  const [viewAs, setViewAsState] = useState(() => getViewAs());
 
   const checkSession = useCallback(async () => {
     try {
@@ -51,6 +57,28 @@ export function AuthProvider({ children }) {
   // to establish yet.
   const register = useCallback((data) => authApi.register(data), []);
 
+  const startViewAs = useCallback(async (token, viewing, expiresIn) => {
+    setViewAs(token, viewing, expiresIn);
+    setViewAsState(getViewAs());
+    await checkSession(); // now resolves as the viewed user
+  }, [checkSession]);
+
+  const exitViewAs = useCallback(async () => {
+    clearViewAs();
+    setViewAsState(null);
+    await checkSession(); // back to the admin's cookie session
+  }, [checkSession]);
+
+  // A view-as token expires server-side after 10 minutes. Drop it client-
+  // side at the same moment so the UI doesn't sit on a dead token until
+  // the next request 401s.
+  useEffect(() => {
+    if (!viewAs) return undefined;
+    const ms = Math.max(0, viewAs.expiresAt - Date.now());
+    const t = setTimeout(() => { exitViewAs(); }, ms);
+    return () => clearTimeout(t);
+  }, [viewAs, exitViewAs]);
+
   const value = {
     user,
     isLoading,
@@ -59,6 +87,9 @@ export function AuthProvider({ children }) {
     logout,
     register,
     refreshUser: checkSession,
+    viewAs,
+    startViewAs,
+    exitViewAs,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

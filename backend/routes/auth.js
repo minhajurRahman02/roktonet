@@ -356,7 +356,7 @@ router.get('/me', requireAuth, async (req, res) => {
       // ever is, never both.
       `SELECT u.user_id, u.email, u.role,
               COALESCE(u.org_id, d.org_id) AS org_id,
-              u.full_name, u.is_verified, u.avatar_url,
+              u.full_name, u.is_verified, u.avatar_url, u.is_primary_admin,
               o.name AS org_name, o.org_type, o.district,
               o.contact_phone AS org_contact_phone, o.contact_email AS org_contact_email,
               d.donor_id

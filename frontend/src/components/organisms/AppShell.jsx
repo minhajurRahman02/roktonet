@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import DashboardFooter from './DashboardFooter';
+import ViewAsBanner from './ViewAsBanner';
 import { useAuth } from '../../context/AuthContext';
 
 const ORG_ROLES = ['hospital', 'bank', 'ngo'];
@@ -37,6 +38,7 @@ export default function AppShell({ crumbs, children }) {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar breadcrumbs={crumbs} />
+        <ViewAsBanner />
         {showContactReminder && (
           <div className="bg-urgent-bg dark:bg-urgent-dbg text-urgent-text dark:text-urgent-dtext text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2">
             <span>Your organization hasn&apos;t set contact info yet -- donors and other organizations won&apos;t be able to reach you.</span>
