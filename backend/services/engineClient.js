@@ -8,6 +8,59 @@ const { logRequestEvent } = require('./requestEvents');
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://127.0.0.1:5001';
 
+// ---------------------------------------------------------------------
+// 7.7a: single-flight batching.
+//
+// THE BUG THIS FIXES. runAllocationBatch used to run
+// SELECT-pending -> solve -> INSERT with no lock and no transaction,
+// while THREE things could call it concurrently:
+//   1. the synchronous critical/urgent path in routes/requests.js
+//   2. the 60-second setInterval in scheduler.js
+//   3. the admin "Run batch now" button
+//
+// Two overlapping runs both saw the same pending request, both sent the
+// same inventory to the engine, and both wrote the answer back. The
+// engine itself was never at fault -- engine.py constrains
+// lpSum(assigned) + shortfall == quantity and caps each unit to one
+// request, so a single solve cannot over-allocate. The damage was
+// entirely in this file's read-solve-write being non-atomic.
+//
+// Observed symptoms: "4 / 2 allocated" on the admin Requests page (a raw
+// COUNT over allocation_records, which had no unique constraint), and the
+// same "Matched with N unit(s) ... request resolved" event logged twice,
+// since that event is written exactly once per batch run per request.
+//
+// THE FIX IS THE ADVISORY LOCK, not the transaction. A transaction alone
+// would not have helped: both runs read committed data and wrote rows
+// that did not conflict with each other, so nothing would have aborted.
+// What was needed was mutual exclusion across the whole read-solve-write,
+// which is what a session-level advisory lock gives.
+//
+// The lock is NOT held across the engine HTTP call's transaction. A cold
+// Render free-tier engine can take 75 seconds to answer, and holding an
+// open Postgres transaction that long would pin a pooled connection and
+// its row locks for the duration. So: hold the advisory lock for the
+// whole batch (cheap, it is just a lock table entry), but only open the
+// real transaction once the engine has answered and we are ready to
+// write.
+// ---------------------------------------------------------------------
+
+// Arbitrary but fixed. Any process calling pg_advisory_lock with this
+// same key contends with us; nothing else in the system uses advisory
+// locks, so collision is not a concern.
+const ALLOCATION_LOCK_KEY = 4711002;
+
+// If another batch holds the lock, wait a little rather than giving up
+// immediately. Usually the running batch already has our request in its
+// pending set and will resolve it for us, but not always: if it took its
+// snapshot microseconds before our INSERT committed, our request is not
+// in it. For a critical request submitted synchronously, waiting a few
+// seconds is far better than silently deferring to the 60s scheduler.
+const LOCK_RETRY_ATTEMPTS = 4;
+const LOCK_RETRY_DELAY_MS = 2000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // On Render's free tier, the engine sleeps after 15 minutes idle. Observed
 // behaviour on wake is a 429 for the first request or two during the
 // ~30-60s boot window -- not a slow response that eventually succeeds, an
@@ -45,105 +98,224 @@ async function fetchWithColdStartRetry(url, options, attempts = 3, delaysMs = [5
   throw lastError;
 }
 
-async function runAllocationBatch() {
-  // "Pending" = hasn't been through the engine yet.
-  const requestsResult = await pool.query(
-    `SELECT request_id, org_id, blood_type, component, quantity, urgency_tier
-     FROM requests WHERE fulfillment_path IS NULL AND cancelled_at IS NULL`
-  );
-
-  if (requestsResult.rows.length === 0) {
-    return { message: 'No pending requests to process.' };
-  }
-
-  // "Eligible stock" = currently available. Convert expiry_date into
-  // days_until_expiry here, since that's the shape the engine expects
-  // (Postgres can subtract two dates directly and get a day count).
-  const inventoryResult = await pool.query(
-    `SELECT unit_id, org_id, blood_type, component,
-            (expiry_date - CURRENT_DATE) AS days_until_expiry
-     FROM inventory_units WHERE status = 'available'`
-  );
-
-  const orgsResult = await pool.query(`SELECT org_id, district FROM organizations`);
-  const organizations = {};
-  orgsResult.rows.forEach((o) => {
-    organizations[o.org_id] = o.district;
-  });
-
-  const payload = {
-    requests: requestsResult.rows,
-    inventory: inventoryResult.rows,
-    organizations,
-  };
-
-  const response = await fetchWithColdStartRetry(`${ENGINE_URL}/engine/allocate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Engine service responded with status ${response.status}`);
-  }
-
-  const result = await response.json();
-
-  // Write assignments back: one allocation_record per (request, unit) pair,
-  // and mark that unit as no longer available for future batches.
-  for (const { request_id, unit_id } of result.assignments) {
-    await pool.query(
-      `INSERT INTO allocation_records (request_id, unit_id) VALUES ($1, $2)`,
-      [request_id, unit_id]
-    );
-    await pool.query(`UPDATE inventory_units SET status = 'reserved' WHERE unit_id = $1`, [
-      unit_id,
-    ]);
-  }
-
-  // Requests fully covered get marked fulfilled via inventory.
-  // Requests still short escalate to the Section 7A donor-fallback flow --
-  // except elective, which needs the proper 7B feasibility+risk-check
-  // pipeline (depends on the forecasting model, not built yet -- future
-  // phase). Elective shortfalls are left untouched for now.
-  const shortfallRequestIds = new Set(Object.keys(result.shortfalls));
-  const processedRequestIds = requestsResult.rows.map((r) => r.request_id);
-  const fallbackResults = [];
-
-  for (const req of requestsResult.rows) {
-    if (!shortfallRequestIds.has(req.request_id)) {
-      await pool.query(`UPDATE requests SET fulfillment_path = 'inventory' WHERE request_id = $1`, [
-        req.request_id,
+/**
+ * Acquires the batch lock, runs `work`, and always releases.
+ *
+ * pg_try_advisory_lock is session-scoped, so the lock lives on the
+ * specific pooled connection we grab here and must be released on that
+ * same connection -- hence holding the client for the whole call rather
+ * than going through pool.query(). If the process dies mid-batch the
+ * connection closes and Postgres drops the lock automatically, so a crash
+ * cannot wedge the system.
+ */
+async function withBatchLock(work) {
+  const lockClient = await pool.connect();
+  let acquired = false;
+  try {
+    for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt += 1) {
+      const { rows } = await lockClient.query('SELECT pg_try_advisory_lock($1) AS locked', [
+        ALLOCATION_LOCK_KEY,
       ]);
-
-      // Real count, not a placeholder -- how many of THIS request's units
-      // came from this specific batch's assignments.
-      const unitsMatched = result.assignments.filter((a) => a.request_id === req.request_id).length;
-      await logRequestEvent(
-        req.request_id,
-        'engine_resolved_inventory',
-        `Matched with ${unitsMatched} unit(s) from existing inventory — request resolved`,
-        { units_matched: unitsMatched }
-      );
-    } else if (req.urgency_tier !== 'elective') {
-      await logRequestEvent(
-        req.request_id,
-        'engine_shortfall',
-        'Inventory alone could not fully cover this request',
-        { shortfall: result.shortfalls[req.request_id] }
-      );
-
-      const outcome = await triggerDonorFallback(req);
-      fallbackResults.push(outcome);
+      if (rows[0].locked) {
+        acquired = true;
+        break;
+      }
+      if (attempt < LOCK_RETRY_ATTEMPTS - 1) await sleep(LOCK_RETRY_DELAY_MS);
     }
-  }
 
-  return {
-    processed: processedRequestIds.length,
-    assignments: result.assignments.length,
-    shortfalls: result.shortfalls,
-    donor_fallback_triggered: fallbackResults,
-  };
+    if (!acquired) {
+      // Deliberately not an error. Another batch is genuinely running and
+      // will almost certainly cover these requests; anything it misses the
+      // scheduler picks up within 60 seconds. Callers surface this as
+      // "queued", not "failed".
+      return {
+        skipped: true,
+        reason: 'Another allocation batch is already running; this request stays queued.',
+      };
+    }
+
+    return await work(lockClient);
+  } finally {
+    if (acquired) {
+      await lockClient
+        .query('SELECT pg_advisory_unlock($1)', [ALLOCATION_LOCK_KEY])
+        .catch((err) => console.error('[engineClient] advisory unlock failed:', err.message));
+    }
+    lockClient.release();
+  }
+}
+
+async function runAllocationBatch() {
+  return withBatchLock(async () => {
+    // "Pending" = hasn't been through the engine yet.
+    const requestsResult = await pool.query(
+      `SELECT request_id, org_id, blood_type, component, quantity, urgency_tier
+       FROM requests WHERE fulfillment_path IS NULL AND cancelled_at IS NULL`
+    );
+
+    if (requestsResult.rows.length === 0) {
+      return { message: 'No pending requests to process.' };
+    }
+
+    // "Eligible stock" = currently available. Convert expiry_date into
+    // days_until_expiry here, since that's the shape the engine expects
+    // (Postgres can subtract two dates directly and get a day count).
+    const inventoryResult = await pool.query(
+      `SELECT unit_id, org_id, blood_type, component,
+              (expiry_date - CURRENT_DATE) AS days_until_expiry
+       FROM inventory_units WHERE status = 'available'`
+    );
+
+    const orgsResult = await pool.query(`SELECT org_id, district FROM organizations`);
+    const organizations = {};
+    orgsResult.rows.forEach((o) => {
+      organizations[o.org_id] = o.district;
+    });
+
+    const payload = {
+      requests: requestsResult.rows,
+      inventory: inventoryResult.rows,
+      organizations,
+    };
+
+    const response = await fetchWithColdStartRetry(`${ENGINE_URL}/engine/allocate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Engine service responded with status ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    // -----------------------------------------------------------------
+    // Write-back, atomically.
+    //
+    // The advisory lock already guarantees no other batch is running, so
+    // this transaction is not about batch-vs-batch. It is about the write
+    // being all-or-nothing, and about the world having moved on WHILE the
+    // engine was thinking: during a 75-second cold start a bank can
+    // dispatch a unit, an admin can cancel a request. So every unit is
+    // re-checked under FOR UPDATE before it is reserved, and any that is
+    // no longer 'available' is dropped from the assignment rather than
+    // blindly overwritten.
+    // -----------------------------------------------------------------
+    const client = await pool.connect();
+    const applied = [];
+    const stale = [];
+    try {
+      await client.query('BEGIN');
+
+      for (const { request_id, unit_id } of result.assignments) {
+        const unit = await client.query(
+          `SELECT unit_id, status FROM inventory_units WHERE unit_id = $1 FOR UPDATE`,
+          [unit_id]
+        );
+        if (!unit.rows.length || unit.rows[0].status !== 'available') {
+          // Taken, dispatched or expired while the engine was solving.
+          stale.push({ request_id, unit_id, status: unit.rows[0]?.status || 'missing' });
+          continue;
+        }
+
+        // ON CONFLICT is belt-and-braces now that
+        // allocation_records_request_unit_unique exists: the lock should
+        // already make a duplicate impossible, and if one somehow arrives
+        // we want it ignored rather than aborting the whole batch.
+        await client.query(
+          `INSERT INTO allocation_records (request_id, unit_id) VALUES ($1, $2)
+           ON CONFLICT (request_id, unit_id) DO NOTHING`,
+          [request_id, unit_id]
+        );
+        await client.query(`UPDATE inventory_units SET status = 'reserved' WHERE unit_id = $1`, [
+          unit_id,
+        ]);
+        applied.push({ request_id, unit_id });
+      }
+
+      // A request is only marked resolved if its allocations actually
+      // landed. Counting from `applied` rather than from the engine's
+      // answer is the difference between reporting what we did and
+      // reporting what we intended to do.
+      const appliedByRequest = new Map();
+      for (const a of applied) {
+        appliedByRequest.set(a.request_id, (appliedByRequest.get(a.request_id) || 0) + 1);
+      }
+
+      const resolved = [];
+      const shortfallRequestIds = new Set(Object.keys(result.shortfalls));
+
+      for (const req of requestsResult.rows) {
+        const got = appliedByRequest.get(req.request_id) || 0;
+        const fullyCovered = !shortfallRequestIds.has(req.request_id) && got >= req.quantity;
+
+        if (fullyCovered) {
+          await client.query(
+            `UPDATE requests SET fulfillment_path = 'inventory'
+             WHERE request_id = $1 AND fulfillment_path IS NULL AND cancelled_at IS NULL`,
+            [req.request_id]
+          );
+          resolved.push({ request_id: req.request_id, units: got });
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Events and donor fallback are deliberately OUTSIDE the
+      // transaction. Both do their own multi-statement work (fallback
+      // writes mobilizations and sends notifications), and holding the
+      // allocation transaction open across all of that would pin a
+      // connection for no benefit -- the allocation itself is already
+      // durable at this point.
+      for (const { request_id, units } of resolved) {
+        await logRequestEvent(
+          request_id,
+          'engine_resolved_inventory',
+          `Matched with ${units} unit(s) from existing inventory — request resolved`,
+          { units_matched: units }
+        );
+      }
+
+      // Requests still short escalate to the Section 7A donor-fallback
+      // flow -- except elective, which needs the proper 7B
+      // feasibility+risk-check pipeline (depends on the forecasting model,
+      // not built yet -- future phase). Elective shortfalls are left
+      // untouched for now.
+      const resolvedIds = new Set(resolved.map((r) => r.request_id));
+      const fallbackResults = [];
+
+      for (const req of requestsResult.rows) {
+        if (resolvedIds.has(req.request_id) || req.urgency_tier === 'elective') continue;
+
+        await logRequestEvent(
+          req.request_id,
+          'engine_shortfall',
+          'Inventory alone could not fully cover this request',
+          { shortfall: result.shortfalls[req.request_id] ?? req.quantity - (appliedByRequest.get(req.request_id) || 0) }
+        );
+
+        const outcome = await triggerDonorFallback(req);
+        fallbackResults.push(outcome);
+      }
+
+      return {
+        processed: requestsResult.rows.length,
+        assignments: applied.length,
+        // Surfaced rather than swallowed: a non-empty list means the
+        // engine's answer was partly out of date by the time it arrived,
+        // which is worth seeing in the admin batch result.
+        stale_assignments: stale,
+        shortfalls: result.shortfalls,
+        donor_fallback_triggered: fallbackResults,
+      };
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
 }
 
 module.exports = { runAllocationBatch };

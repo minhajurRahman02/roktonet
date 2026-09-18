@@ -220,8 +220,32 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: `A ${target.role} account cannot be assigned to an organization` });
     }
     if (org_id) {
-      const org = await pool.query('SELECT org_id FROM organizations WHERE org_id = $1', [org_id]);
+      const org = await pool.query('SELECT org_id, name, org_type FROM organizations WHERE org_id = $1', [org_id]);
       if (org.rows.length === 0) return res.status(400).json({ error: 'Organization not found' });
+
+      // 7.7a: the role and the organization's type have to agree.
+      //
+      // Checking that the role is org-bound and that the org exists was
+      // never enough -- both were true for an ngo user pointed at a
+      // hospital. Nothing rejected it, and the damage showed up later and
+      // somewhere else: the User Detail bundle branches on role, so an
+      // "ngo" user on a hospital org gets queried for inventory and blood
+      // drives that organization does not have, and the fairness
+      // analytics attribute its units to the wrong class of org.
+      //
+      // Role cannot be edited here by design (spec 2.2), so the role is
+      // always the fixed side of this comparison and the org is the side
+      // being chosen. The error names both, because "invalid" on its own
+      // does not tell an admin which of the two they got wrong.
+      const EXPECTED_ORG_TYPE = { hospital: 'hospital', bank: 'blood_bank', ngo: 'ngo' };
+      const expected = EXPECTED_ORG_TYPE[target.role];
+      if (org.rows[0].org_type !== expected) {
+        return res.status(400).json({
+          error: `A ${target.role} account must belong to a ${expected} organization, `
+            + `but "${org.rows[0].name}" is a ${org.rows[0].org_type}. `
+            + `Role cannot be changed on an existing account, so pick a ${expected} organization instead.`,
+        });
+      }
     }
 
     const sets = [];

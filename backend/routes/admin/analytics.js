@@ -12,6 +12,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../db');
+const { eligibilityStatusSql } = require('../../services/eligibility');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { parseDateRange } = require('./_helpers');
 const { DIVISION_POSITIONS, DIVISIONS, divisionOf } = require('../../constants/divisions');
@@ -26,7 +27,7 @@ function rangeSql(column, from, to, startIndex = 1) {
   const parts = [];
   const values = [];
   if (from) { values.push(from); parts.push(`${column} >= $${startIndex + values.length - 1}`); }
-  if (to)   { values.push(to);   parts.push(`${column} <= $${startIndex + values.length - 1}`); }
+  if (to) { values.push(to); parts.push(`${column} <= $${startIndex + values.length - 1}`); }
   return { sql: parts.length ? `AND ${parts.join(' AND ')}` : '', values };
 }
 
@@ -54,7 +55,14 @@ router.get('/overview', async (req, res) => {
          WHERE fulfillment_path IS NOT NULL AND fulfillment_path <> 'inventory' AND cancelled_at IS NULL`
       ),
       pool.query(`SELECT status, COUNT(*) AS count FROM donor_drives GROUP BY status`),
-      pool.query(`SELECT eligibility_status, COUNT(*) AS count FROM donors GROUP BY eligibility_status`),
+      // 7.7a: computed, not read off a column. The old version grouped by
+      // donors.eligibility_status, which was the string 'eligible' on every
+      // row the application had ever created -- so this KPI was a count of
+      // all donors wearing the label of a real metric.
+      pool.query(
+        `SELECT ${eligibilityStatusSql('d')} AS eligibility_status, COUNT(*) AS count
+         FROM donors d GROUP BY 1`
+      ),
       pool.query(`SELECT role, COUNT(*) AS count FROM users WHERE is_active = true GROUP BY role`),
       pool.query(`SELECT COUNT(*) AS count FROM requests WHERE cancelled_at IS NOT NULL`),
     ]);

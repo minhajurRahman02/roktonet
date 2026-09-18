@@ -14,6 +14,7 @@ const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const archiver = require('archiver');
 const pool = require('../../db');
+const { eligibilityStatusSql } = require('../../services/eligibility');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { logAdminAction } = require('../../services/adminAudit');
 const { parseDateRange } = require('./_helpers');
@@ -27,7 +28,7 @@ function windowSql(column, from, to) {
   const values = [];
   const parts = [];
   if (from) { values.push(from); parts.push(`${column} >= $${values.length}`); }
-  if (to)   { values.push(to);   parts.push(`${column} <= $${values.length}`); }
+  if (to) { values.push(to); parts.push(`${column} <= $${values.length}`); }
   return { sql: parts.length ? `WHERE ${parts.join(' AND ')}` : '', values };
 }
 
@@ -114,15 +115,17 @@ const DATASETS = {
     columns: [
       { key: 'donor_id', header: 'Donor ID' }, { key: 'full_name', header: 'Name' }, { key: 'blood_type', header: 'Blood type' },
       { key: 'sex', header: 'Sex' }, { key: 'org_name', header: 'NGO' }, { key: 'current_district', header: 'District' },
-      { key: 'eligibility_status', header: 'Eligibility' }, { key: 'last_donation_date', header: 'Last donation' },
+      { key: 'eligibility_status', header: 'Eligibility' }, { key: 'last_donation_date', header: 'Last donation' }, { key: 'last_donation_component', header: 'Last component' },
       { key: 'has_login', header: 'Has login' }, { key: 'created_at', header: 'Registered' },
     ],
     async rows(from, to) {
       const w = windowSql('d.created_at', from, to);
       const r = await pool.query(
-        `SELECT d.donor_id, d.full_name, d.blood_type, d.sex, o.name AS org_name, d.current_district, d.eligibility_status,
-                d.last_donation_date, (d.user_id IS NOT NULL) AS has_login, d.created_at
-         FROM donors d LEFT JOIN organizations o ON o.org_id = d.org_id ${w.sql} ORDER BY d.full_name`, w.values);
+        `SELECT d.donor_id, d.full_name, d.blood_type, d.sex, o.name AS org_name, d.current_district,
+        ${eligibilityStatusSql('d')} AS eligibility_status,
+        d.last_donation_component,
+        d.last_donation_date, (d.user_id IS NOT NULL) AS has_login, d.created_at
+ FROM donors d LEFT JOIN organizations o ON o.org_id = d.org_id ${w.sql} ORDER BY d.full_name`, w.values);
       return r.rows;
     },
   },
@@ -319,8 +322,10 @@ async function sendReport(res, req, name, datasetNames, format, from, to) {
   const rowTotal = sets.reduce((s, x) => s + x.rows.length, 0);
 
   await logAdminAction(req.user.user_id, 'report_generated', {
-    targetType: 'report', details: { report: name, format, datasets: datasetNames, rows: rowTotal,
-      from: from ? from.toISOString() : null, to: to ? to.toISOString() : null },
+    targetType: 'report', details: {
+      report: name, format, datasets: datasetNames, rows: rowTotal,
+      from: from ? from.toISOString() : null, to: to ? to.toISOString() : null
+    },
   });
 
   if (format === 'csv') {

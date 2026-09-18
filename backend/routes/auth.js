@@ -155,9 +155,14 @@ router.post('/register', async (req, res) => {
           thanaId = resolved ? resolved.thana_id : null;
         }
 
+        // 7.7a: eligibility_status is gone. It was written here as the
+        // literal 'eligible' and never updated by anything anywhere, so it
+        // was a claim the system made once and then never revisited.
+        // Eligibility is now derived from last_donation_date,
+        // last_donation_component and sex by services/eligibility.js.
         await client.query(
-          `INSERT INTO donors (user_id, full_name, blood_type, current_district, current_thana, current_thana_id, phone_number, sex, eligibility_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible')`,
+          `INSERT INTO donors (user_id, full_name, blood_type, current_district, current_thana, current_thana_id, phone_number, sex)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [newUser.user_id, full_name || null, blood_type, current_district, current_thana || null, thanaId, phone_number, sex]
         );
 

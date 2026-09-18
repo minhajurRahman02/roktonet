@@ -349,6 +349,39 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), async (req, res) =
       return res.status(400).json({ error: 'Request is already cancelled' });
     }
 
+    // 7.7a: a request whose blood has physically moved cannot be cancelled.
+    //
+    // There was no check here at all. An admin could cancel a request that
+    // a bank had already dispatched and a hospital had already received:
+    // cancelled_at was set, the hospital was notified their request was
+    // cancelled, and the row disappeared from the default "Hide cancelled"
+    // view, while the units sat in their fridge. The state machine had no
+    // terminal state.
+    //
+    // Blocked outright rather than allowed-with-a-warning. Cancelling is
+    // meant to mean "this need went away before we acted on it". Once blood
+    // has moved, the thing that needs recording is a return, which is a
+    // different action with different inventory consequences, and pretending
+    // it is a cancellation would put the database in a state that does not
+    // describe anything that really happened.
+    const moved = await client.query(
+      `SELECT iu.unit_id, iu.status
+       FROM allocation_records ar
+       JOIN inventory_units iu ON iu.unit_id = ar.unit_id
+       WHERE ar.request_id = $1 AND iu.status IN ('dispatched', 'delivered')`,
+      [request.request_id]
+    );
+    if (moved.rows.length > 0) {
+      await client.query('ROLLBACK');
+      const counts = moved.rows.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] || 0) + 1 }), {});
+      const detail = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(' and ');
+      return res.status(409).json({
+        error: `This request cannot be cancelled: ${detail} unit(s) have already left the source organization. `
+          + `Cancelling would not bring them back. Record what physically happened to those units instead.`,
+        units_already_moved: moved.rows,
+      });
+    }
+
     const released = await client.query(
       `UPDATE inventory_units SET status = 'available'
        WHERE status = 'reserved'
@@ -376,7 +409,7 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), async (req, res) =
 
     res.json({ request_id: request.request_id, cancelled: true, released_units: released.rows.length });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => { });
     console.error(err);
     res.status(500).json({ error: err.message });
   } finally {

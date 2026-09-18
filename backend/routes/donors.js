@@ -6,6 +6,8 @@ const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendPasswordResetEmail } = require('../services/emailService');
 const { resolveThana } = require('../services/locationResolver');
+const { eligibleSql, eligibilityStatusSql } = require('../services/eligibility');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 const BCRYPT_ROUNDS = 10;
 // Longer than the 60-minute forgot-password window -- this is an
@@ -21,6 +23,9 @@ function isOwningNgo(donor, user) {
 // org (ngo/bank/admin); ?phone= does a partial match, for the "search by
 // phone" flow during a live drive.
 router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   let orgId = req.user.org_id;
   if (req.user.role === 'admin') orgId = req.query.org_id || null;
 
@@ -41,12 +46,34 @@ router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, re
     conditions.push(`d.phone_number LIKE $${values.length}`);
   }
   // Admin-scale filters (7.7); harmless for scoped roles.
-  for (const [param, column] of [['blood_type', 'd.blood_type'], ['eligibility_status', 'd.eligibility_status'], ['district', 'd.current_district'], ['sex', 'd.sex']]) {
+  for (const [param, column] of [['blood_type', 'd.blood_type'], ['district', 'd.current_district'], ['thana', 'd.current_thana'], ['sex', 'd.sex']]) {
     if (req.query[param]) {
       values.push(req.query[param]);
       conditions.push(`${column} = $${values.length}`);
     }
   }
+
+  // 7.7a: eligibility is COMPUTED, not stored.
+  //
+  // This filter used to be `d.eligibility_status = $n` against a column
+  // that was written once at INSERT as the literal 'eligible' and never
+  // updated by anything. The filter was therefore returning "donors we
+  // once wrote the word eligible onto", which was all of them.
+  //
+  // eligibleSql() generates the cooldown arithmetic from the same
+  // constants services/eligibility.js uses for the JavaScript path, so
+  // the SQL and the JS cannot drift apart. It contains only generated
+  // integers and the table alias -- no user input is interpolated.
+  //
+  // 'pending' is gone as an option: nothing ever wrote it, and there is
+  // no third state in the real model. A donor is either past their
+  // cooldown for at least one component or they are not.
+  if (req.query.eligibility_status === 'eligible') {
+    conditions.push(eligibleSql('d'));
+  } else if (req.query.eligibility_status === 'ineligible') {
+    conditions.push(`NOT ${eligibleSql('d')}`);
+  }
+
   if (req.query.search) {
     values.push(`%${req.query.search}%`);
     conditions.push(`(d.full_name ILIKE $${values.length} OR d.email ILIKE $${values.length})`);
@@ -56,14 +83,31 @@ router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, re
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // The computed status rides along as a plain column so callers that
+  // only want the word (report exports, the admin KPI) do not have to
+  // recompute it, while the raw inputs (last_donation_date,
+  // last_donation_component, sex) are still in d.* for callers that want
+  // the full per-component breakdown.
+  const selectSql = `SELECT d.*, o.name AS org_name,
+                            ${eligibilityStatusSql('d')} AS eligibility_status
+                     FROM donors d
+                     LEFT JOIN organizations o ON o.org_id = d.org_id
+                     ${whereClause}`;
+
   try {
-    const result = await pool.query(
-      `SELECT d.*, o.name AS org_name FROM donors d
-       LEFT JOIN organizations o ON o.org_id = d.org_id
-       ${whereClause} ORDER BY d.full_name`,
-      values
-    );
-    res.json(result.rows);
+    if (!pagination.paginated) {
+      const result = await pool.query(`${selectSql} ORDER BY d.full_name`, values);
+      return res.json(result.rows);
+    }
+
+    const page = await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM donors d
+                 LEFT JOIN organizations o ON o.org_id = d.org_id ${whereClause}`,
+      rowsSql: `${selectSql} ORDER BY d.full_name`,
+      values,
+      pagination,
+    });
+    res.json(page);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -124,9 +168,14 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
       thanaId = resolved ? resolved.thana_id : null;
     }
 
+    // 7.7a: eligibility_status is no longer written, because the column
+    // no longer exists. It used to be hardcoded to 'eligible' HERE, on
+    // the very same INSERT that could accept a last_donation_date from
+    // last week -- the most direct demonstration of why a stored status
+    // column was the wrong design.
     const result = await pool.query(
-      `INSERT INTO donors (org_id, full_name, phone_number, blood_type, email, current_district, current_thana, current_thana_id, last_donation_date, last_donation_component, sex, eligibility_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'eligible')
+      `INSERT INTO donors (org_id, full_name, phone_number, blood_type, email, current_district, current_thana, current_thana_id, last_donation_date, last_donation_component, sex)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         org_id,
@@ -156,7 +205,11 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
 // GET /api/mobilizations/:requestId's confirmed-invite reveal, never here.
 router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM donors WHERE donor_id = $1', [req.params.id]);
+    const result = await pool.query(
+      `SELECT d.*, ${eligibilityStatusSql('d')} AS eligibility_status
+       FROM donors d WHERE d.donor_id = $1`,
+      [req.params.id]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Donor not found' });
     }
