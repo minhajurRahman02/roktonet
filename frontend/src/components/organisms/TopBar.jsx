@@ -31,7 +31,7 @@ function initials(name) {
 }
 
 export default function TopBar({ breadcrumbs }) {
-  const { user, logout } = useAuth();
+  const { user, logout, viewAs, exitViewAs } = useAuth();
   const [isDark, setIsDark] = useDarkMode();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -65,7 +65,27 @@ export default function TopBar({ breadcrumbs }) {
   }, []);
 
   async function handleLogout() {
-    await logout();
+    // 7.7a: during view-as, "log out" means leave the view-as session,
+    // not end the admin's real one. The admin is not logged in as this
+    // person in the first place -- their own cookie is still underneath.
+    //
+    // Before this, the POST to /auth/logout was rejected by the read-only
+    // guard, the throw escaped an unguarded await, and the hard
+    // navigation below never ran. The button did nothing and said nothing.
+    if (viewAs) {
+      await exitViewAs();
+      window.location.href = '/admin/users';
+      return;
+    }
+    // Wrapped because a failed logout must never strand someone on a page
+    // they are trying to leave. The cookie is httpOnly so we cannot clear
+    // it here, but the hard navigation below at least gets them to the
+    // login screen rather than leaving the button apparently dead.
+    try {
+      await logout();
+    } catch (err) {
+      console.error('[TopBar] logout request failed, navigating anyway:', err.message);
+    }
     // A hard navigation, not react-router's navigate(). Clearing the user
     // above can itself trigger ProtectedRoute's own redirect-to-login
     // (since we're still mounted on a now-unauthenticated protected page
@@ -79,12 +99,20 @@ export default function TopBar({ breadcrumbs }) {
   }
 
   function handleNotificationClick(notification) {
-    // Optimistic -- flip it locally right away, don't wait on the network
-    // round-trip before the dot disappears.
-    setNotifications((prev) =>
-      prev.map((n) => (n.notification_id === notification.notification_id ? { ...n, is_read: true } : n))
-    );
-    markNotificationRead(notification.notification_id).catch(() => { });
+    // 7.7a: in a view-as session the mark-read POST is refused by the
+    // read-only guard, which is correct -- an admin looking at someone's
+    // inbox must not consume their unread state. But the optimistic flip
+    // below would still show the dot clearing, i.e. display an outcome
+    // that did not happen. Skip both, and the inbox reads exactly as the
+    // donor would see it.
+    if (!viewAs) {
+      // Optimistic -- flip it locally right away, don't wait on the network
+      // round-trip before the dot disappears.
+      setNotifications((prev) =>
+        prev.map((n) => (n.notification_id === notification.notification_id ? { ...n, is_read: true } : n))
+      );
+      markNotificationRead(notification.notification_id).catch(() => { });
+    }
 
     if (notification.related_request_id && user?.role === 'hospital') {
       setNotifOpen(false);

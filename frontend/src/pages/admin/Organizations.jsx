@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
@@ -14,7 +14,8 @@ import { Table, Th, Td, TableFooter } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { listOrganizations, updateOrganization } from '../../api/organizations';
 import { createOrganization } from '../../api/admin';
-import { getDistricts } from '../../api/locations';
+import DatalistInput from '../../components/atoms/DatalistInput';
+import { getDistricts, getThanas } from '../../api/locations';
 import { ORG_TYPES } from '../../constants/blood';
 
 function InviteCode({ code }) {
@@ -39,6 +40,20 @@ export default function AdminOrganizations() {
   const [applied, setApplied] = useState({});
   const orgs = useAsync(() => listOrganizations(applied), [applied]);
   const districts = useAsync(getDistricts, []);
+  // 7.7a: same cascading list RegisterDonor.jsx already uses. Thana names
+  // are only unique within a district, so an uncascaded list would be both
+  // enormous and ambiguous. Keyed off whatever district the form currently
+  // holds, so it repopulates correctly when you open Edit on an existing
+  // org rather than staying empty until you re-pick the district.
+  const [thanas, setThanas] = useState([]);
+  useEffect(() => {
+    if (!form.district) { setThanas([]); return undefined; }
+    let cancelled = false;
+    getThanas(form.district)
+      .then((list) => { if (!cancelled) setThanas(list); })
+      .catch(() => { if (!cancelled) setThanas([]); });
+    return () => { cancelled = true; };
+  }, [form.district]);
   const [modal, setModal] = useState(null); // null | 'create' | org
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
@@ -111,8 +126,12 @@ export default function AdminOrganizations() {
         <form id="org-form" onSubmit={save} className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><label className="text-xs text-gray-500">Name</label><Input className="mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div><label className="text-xs text-gray-500">Type</label><Select className="mt-1" disabled={modal !== 'create'} value={form.org_type} onChange={(e) => setForm({ ...form, org_type: e.target.value })}>{ORG_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</Select></div>
-          <div><label className="text-xs text-gray-500">District</label><Select className="mt-1" required value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })}><option value="">Select…</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select></div>
-          <div><label className="text-xs text-gray-500">Thana <span className="text-gray-400">(optional, fuzzy-matched)</span></label><Input className="mt-1" value={form.thana} onChange={(e) => setForm({ ...form, thana: e.target.value })} placeholder="Dhanmondi" /></div>
+          {/* Changing district clears thana: a thana from the old district
+              is not valid in the new one, and silently keeping it would
+              send a mismatched pair to resolveThana, which would fail to
+              match and store a null thana_id without saying so. */}
+          <div><label className="text-xs text-gray-500">District</label><Select className="mt-1" required value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value, thana: '' })}><option value="">Select…</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select></div>
+          <div><label className="text-xs text-gray-500">Thana <span className="text-gray-400">(optional)</span></label><DatalistInput id="org-thana" className="mt-1" value={form.thana} onChange={(e) => setForm({ ...form, thana: e.target.value })} options={thanas} disabled={!form.district} placeholder={form.district ? 'Start typing…' : 'Pick a district first'} /></div>
           <div><label className="text-xs text-gray-500">Contact phone</label><Input className="mt-1" value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></div>
           <div className="col-span-2"><label className="text-xs text-gray-500">Contact email</label><Input className="mt-1" type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
           {modal !== 'create' && modal && <div className="col-span-2"><label className="text-xs text-gray-500">Invite code</label><div className="mt-1"><InviteCode code={modal.invite_code} /></div></div>}

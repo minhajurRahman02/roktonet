@@ -17,6 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getUser, updateUser, requestViewToken } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
 import { ROLE_HOME } from '../../constants/roleHome';
+import { getEligibilityBreakdown, formatEligibilityShort } from '../../utils/eligibility';
 import { relativeTime } from '../../utils/relativeTime';
 
 const ORG_ROLES = ['hospital', 'bank', 'ngo'];
@@ -43,7 +44,7 @@ function roleTabs(role, d) {
       };
     case 'donor':
       return {
-        cards: [[d.donor?.blood_type || '—', 'Blood type'], [d.donation_history?.length || 0, 'Donations'], [d.invites?.length || 0, 'Invites received'], [d.donor ? d.donor.eligibility_status : 'unlinked', 'Eligibility']],
+        cards: [[d.donor?.blood_type || '—', 'Blood type'], [d.donation_history?.length || 0, 'Donations'], [d.invites?.length || 0, 'Invites received'], [d.donor ? (getEligibilityBreakdown(d.donor).eligible ? 'Eligible' : 'In cooldown') : 'unlinked', 'Eligibility']],
         tabs: [['donor', 'Donor record'], ['donation_history', `Donation history (${d.donation_history?.length || 0})`], ['invites', `Invites (${d.invites?.length || 0})`], ['notifications', `Notifications (${d.notifications?.length || 0})`]],
       };
     case 'admin':
@@ -63,7 +64,7 @@ function TabContent({ tab, d }) {
     const x = d.donor;
     return (
       <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        {[['Blood type', x.blood_type], ['Sex', x.sex || '—'], ['NGO', x.org_name || 'self-registered'], ['Phone', x.phone_number || '—'], ['District', x.current_district || '—'], ['Thana', x.current_thana || '—'], ['Last donation', x.last_donation_date ? `${fmtDate(x.last_donation_date)} · ${x.last_donation_component}` : 'never'], ['Eligibility', <StatusBadge key="e" value={x.eligibility_status} />]].map(([k, v]) => (
+        {[['Blood type', x.blood_type], ['Sex', x.sex || '—'], ['NGO', x.org_name || 'self-registered'], ['Phone', x.phone_number || '—'], ['District', x.current_district || '—'], ['Thana', x.current_thana || '—'], ['Last donation', x.last_donation_date ? `${fmtDate(x.last_donation_date)} · ${x.last_donation_component}` : 'never'], ['Eligibility', <span key="e" className="mono text-xs">{formatEligibilityShort(x)}</span>]].map(([k, v]) => (
           <div key={k}><p className="text-xs text-gray-500">{k}</p><p className="mt-0.5 dark:text-textprimary-dark">{v}</p></div>
         ))}
       </div>
@@ -166,8 +167,20 @@ export default function AdminUserDetail() {
     setViewAsBusy(true); setActionError('');
     try {
       const res = await requestViewToken(u.user_id);
-      await startViewAs(res.token, res.viewing, res.expires_in);
-      navigate(ROLE_HOME[res.viewing.role] || '/');
+      // 7.7a: the navigation is passed INTO startViewAs rather than run
+      // after it. Awaiting first flipped user.role to the viewed role
+      // while the router was still on /admin/users/:id, so
+      // RoleRoute(['admin']) redirected to /unauthorized and unmounted
+      // this component -- and the navigate on the next line then ran from
+      // a dead component and did nothing. The admin was left on the
+      // unauthorized page, where the "Go to your dashboard" button was
+      // quietly finishing the routing this line was supposed to do.
+      await startViewAs(
+        res.token,
+        res.viewing,
+        res.expires_in,
+        () => navigate(ROLE_HOME[res.viewing.role] || '/')
+      );
     } catch (err) { setActionError(err.message); setViewAsBusy(false); }
   };
 

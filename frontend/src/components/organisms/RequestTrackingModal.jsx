@@ -5,10 +5,9 @@ import { X } from 'lucide-react';
 import { getRequest } from '../../api/requests';
 import { getRequestEvents, getRequestAllocation } from '../../api/requestTracking';
 import { getMobilizationsForRequest } from '../../api/mobilizations';
-import RequestTrackingMap from './RequestTrackingMap';
+import RequestTrackingMap, { INVENTORY_PATHS, FALLBACK_PATHS } from './RequestTrackingMap';
 
 const POLL_INTERVAL_MS = 2000;
-const FALLBACK_PATHS = ['donor_fallback', 'parallel_critical', 'scheduled_donor_mobilization'];
 
 /**
  * Polls while open and the request is still unresolved (fulfillment_path
@@ -18,6 +17,12 @@ const FALLBACK_PATHS = ['donor_fallback', 'parallel_critical', 'scheduled_donor_
  * fallback paths, a donor could technically still respond after this
  * point; that response is real and stored, but won't appear live unless
  * the modal is reopened (which does a fresh fetch).
+ *
+ * 7.7a: the path lists are now imported from RequestTrackingMap rather
+ * than redeclared here. They were duplicated, and the two copies had
+ * already drifted -- 'scheduled_reservation' was missing from both, so
+ * this component never fetched allocation rows for it AND the map never
+ * drew it. One list, one place.
  */
 export default function RequestTrackingModal({ requestId, isOpen, onClose }) {
   const [request, setRequest] = useState(null);
@@ -36,7 +41,7 @@ export default function RequestTrackingModal({ requestId, isOpen, onClose }) {
       setRequest(requestData);
       setEvents(eventsData);
 
-      if (requestData.fulfillment_path === 'inventory') {
+      if (INVENTORY_PATHS.includes(requestData.fulfillment_path)) {
         setAllocation(await getRequestAllocation(requestId));
       } else if (FALLBACK_PATHS.includes(requestData.fulfillment_path)) {
         setMobilizations(await getMobilizationsForRequest(requestId));
@@ -140,15 +145,14 @@ export default function RequestTrackingModal({ requestId, isOpen, onClose }) {
                       className="flex gap-3 text-sm"
                     >
                       <span
-                        className={`w-1 shrink-0 rounded-full ${
-                          event.event_type.includes('shortfall') ||
-                          event.event_type.includes('donor_search') ||
-                          event.event_type.includes('escalation')
+                        className={`w-1 shrink-0 rounded-full ${event.event_type.includes('shortfall') ||
+                            event.event_type.includes('donor_search') ||
+                            event.event_type.includes('escalation')
                             ? 'bg-urgent-text'
                             : event.event_type.includes('resolved') || event.event_type === 'donor_responded'
                               ? 'bg-elective-text dark:bg-elective-dtext'
                               : 'bg-gray-300 dark:bg-white/20'
-                        }`}
+                          }`}
                       />
                       <div>
                         <p className="dark:text-textprimary-dark">{event.message}</p>
@@ -158,6 +162,20 @@ export default function RequestTrackingModal({ requestId, isOpen, onClose }) {
                       </div>
                     </motion.div>
                   ))}
+
+                  {/* 7.7a: the third layer of the blank-modal bug.
+                      seed_data.sql contains zero request_events rows, so
+                      every seeded request had an empty timeline on top of
+                      an empty diagram. An empty list rendered as nothing
+                      at all, which is indistinguishable from a failure.
+                      Say which it is. */}
+                  {events.length === 0 && !isLive && (
+                    <p className="text-sm text-gray-400 italic flex gap-3">
+                      <span className="w-1 shrink-0 rounded-full bg-gray-200 dark:bg-white/10" />
+                      No tracking events were recorded for this request. It predates the event log.
+                    </p>
+                  )}
+
                   {isLive && (
                     <p className="text-sm text-gray-400 italic flex gap-3">
                       <span className="w-1 shrink-0 rounded-full bg-gray-200 dark:bg-white/10" />

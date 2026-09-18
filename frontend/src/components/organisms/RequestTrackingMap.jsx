@@ -1,18 +1,36 @@
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 
+// 7.7a: 'scheduled_reservation' belongs HERE, with inventory.
+//
+// It was in neither list before, so the component fell through to
+// `return null` and drew nothing. Combined with seed_data.sql containing
+// zero request_events rows, that produced a completely blank modal for
+// every scheduled_reservation request -- the bug reported as "the track
+// modal is empty".
+//
+// It sits with inventory rather than with the donor paths because that is
+// what it physically is: real units, reserved from a real source org, for
+// a future date. The only difference from 'inventory' is timing, and
+// timing is not something this diagram shows. Drawing it as a donor
+// mobilisation would have been wrong in a more confusing way than drawing
+// nothing.
+const INVENTORY_PATHS = ['inventory', 'scheduled_reservation'];
 const FALLBACK_PATHS = ['donor_fallback', 'parallel_critical', 'scheduled_donor_mobilization'];
 
 /**
- * Three honest visual states, matching the reviewed mockup:
+ * Four honest visual states, matching the reviewed mockup:
  * - Pending: pulsing search ring, no location claims at all.
- * - Resolved via inventory: a REAL two-point flow line between the source
- *   org's district and the hospital's district (both real data).
+ * - Resolved via inventory (or a scheduled reservation): a REAL two-point
+ *   flow line between the source org's district and the hospital's
+ *   district (both real data).
  * - Resolved via donor fallback: donor icons clustered near the hospital
  *   node, deliberately NOT placed on a map -- donors' locations aren't
  *   tracked in the schema, so drawing a flow line from an invented origin
  *   would be the same kind of fabrication ruled out earlier for the
  *   "searched 13 banks" narrative.
+ * - Anything else: a labelled placeholder rather than nothing. See the
+ *   note on the final branch.
  */
 export default function RequestTrackingMap({ request, allocation, mobilizations }) {
   if (!request.fulfillment_path) {
@@ -33,8 +51,26 @@ export default function RequestTrackingMap({ request, allocation, mobilizations 
     );
   }
 
-  if (request.fulfillment_path === 'inventory') {
+  if (INVENTORY_PATHS.includes(request.fulfillment_path)) {
     const distinctOrgs = [...new Map(allocation.map((a) => [a.org_id, a])).values()];
+
+    // A resolved inventory request with no allocation rows is a real
+    // state, not an error: older seed rows carry a fulfillment_path with
+    // no allocation_records behind them. Saying so is better than drawing
+    // an empty diagram with two unlabelled nodes.
+    if (distinctOrgs.length === 0) {
+      return (
+        <div className="flex flex-col items-center py-6">
+          <div className="w-14 h-14 rounded-xl bg-primary flex items-center justify-center text-white">
+            <HospitalIcon />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-textsecondary-dark mt-2">{request.org_name}</p>
+          <p className="text-[10px] text-gray-400 mt-2 text-center max-w-xs">
+            Marked resolved from inventory, but no source units are on record for it
+          </p>
+        </div>
+      );
+    }
 
     return (
       <div>
@@ -68,7 +104,11 @@ export default function RequestTrackingMap({ request, allocation, mobilizations 
           <span>
             {distinctOrgs.map((o) => o.org_name).join(', ') || '—'}
             <br />
-            <span className="text-[10px] text-gray-400">source · real district</span>
+            <span className="text-[10px] text-gray-400">
+              {request.fulfillment_path === 'scheduled_reservation'
+                ? 'source · reserved ahead of need'
+                : 'source · real district'}
+            </span>
           </span>
           <span className="text-right">
             {request.org_name}
@@ -100,7 +140,25 @@ export default function RequestTrackingMap({ request, allocation, mobilizations 
     );
   }
 
-  return null;
+  // 7.7a: a real fallback instead of `return null`.
+  //
+  // The old version returned null for anything not in the two lists
+  // above, which is how a whole fulfillment path rendered as an empty
+  // box with no indication anything was wrong. The schema's CHECK
+  // constraint is the list of paths that can exist, and it can grow
+  // (7B adds more), so this branch guarantees a future path shows
+  // SOMETHING honest rather than silently disappearing.
+  return (
+    <div className="flex flex-col items-center py-6">
+      <div className="w-14 h-14 rounded-xl bg-primary flex items-center justify-center text-white">
+        <HospitalIcon />
+      </div>
+      <p className="text-xs text-gray-500 dark:text-textsecondary-dark mt-2">{request.org_name}</p>
+      <p className="text-[10px] text-gray-400 mt-2 text-center max-w-xs">
+        Resolved via {String(request.fulfillment_path).replace(/_/g, ' ')}. No diagram for this path yet.
+      </p>
+    </div>
+  );
 }
 
 function DonorIcon({ status }) {
@@ -152,3 +210,5 @@ RequestTrackingMap.propTypes = {
   allocation: PropTypes.array.isRequired,
   mobilizations: PropTypes.array.isRequired,
 };
+
+export { INVENTORY_PATHS, FALLBACK_PATHS };

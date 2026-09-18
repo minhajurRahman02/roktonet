@@ -18,6 +18,38 @@ export function AuthProvider({ children }) {
   // admin's real cookie session is untouched underneath.
   const [viewAs, setViewAsState] = useState(() => getViewAs());
 
+  // ---------------------------------------------------------------------
+  // 7.7a: `switching` fixes the "Your account (donor) doesn't have access
+  // to this page" warning on entering and leaving view-as.
+  //
+  // THE BUG. RoleRoute does not render a message, it does
+  // <Navigate to="/unauthorized" replace />. Entering view-as awaited
+  // checkSession(), which flipped user.role to 'donor' WHILE the router
+  // was still sitting on /admin/users/:id. RoleRoute(['admin']) saw the
+  // mismatch on the very next render and redirected, which UNMOUNTED
+  // UserDetail -- so the navigate(ROLE_HOME[...]) on the following line
+  // ran from a dead component and was swallowed. Exiting was the mirror
+  // image: role flips to 'admin' while on /donor/overview, RoleRoute
+  // redirects, ViewAsBanner unmounts (it lives inside AppShell, inside
+  // RoleRoute), and its navigate was swallowed too. Both times the user
+  // was parked on /unauthorized, and that page's "Go to your dashboard"
+  // button was silently doing the routing the code had intended.
+  //
+  // WHY NOT JUST NAVIGATE FIRST. Because that fails symmetrically:
+  // navigating to /bank/overview while still an admin makes
+  // RoleRoute(['bank']) reject the admin instead. There is no ordering of
+  // two independent state changes that avoids a mismatched frame.
+  //
+  // So the route change and the identity change have to happen inside one
+  // window where RoleRoute declines to judge at all. `switching` is that
+  // window; RoleRoute holds while it is true.
+  //
+  // The navigation is passed IN as a callback rather than done here,
+  // because AuthProvider wraps BrowserRouter in App.jsx and therefore
+  // cannot call useNavigate itself.
+  // ---------------------------------------------------------------------
+  const [switching, setSwitching] = useState(false);
+
   const checkSession = useCallback(async () => {
     try {
       const me = await authApi.getMe();
@@ -57,21 +89,48 @@ export function AuthProvider({ children }) {
   // to establish yet.
   const register = useCallback((data) => authApi.register(data), []);
 
-  const startViewAs = useCallback(async (token, viewing, expiresIn) => {
-    setViewAs(token, viewing, expiresIn);
-    setViewAsState(getViewAs());
-    await checkSession(); // now resolves as the viewed user
+  /**
+   * @param {string} token
+   * @param {object} viewing
+   * @param {string} expiresIn
+   * @param {Function} [navigateTo] - called after the token is stored but
+   *   before the identity swap resolves, so the route and the role change
+   *   inside the same `switching` window.
+   */
+  const startViewAs = useCallback(async (token, viewing, expiresIn, navigateTo) => {
+    setSwitching(true);
+    try {
+      setViewAs(token, viewing, expiresIn);
+      setViewAsState(getViewAs());
+      if (navigateTo) navigateTo();
+      await checkSession(); // now resolves as the viewed user
+    } finally {
+      setSwitching(false);
+    }
   }, [checkSession]);
 
-  const exitViewAs = useCallback(async () => {
-    clearViewAs();
-    setViewAsState(null);
-    await checkSession(); // back to the admin's cookie session
+  /** @param {Function} [navigateTo] - see startViewAs. */
+  const exitViewAs = useCallback(async (navigateTo) => {
+    setSwitching(true);
+    try {
+      clearViewAs();
+      setViewAsState(null);
+      if (navigateTo) navigateTo();
+      await checkSession(); // back to the admin's cookie session
+    } finally {
+      setSwitching(false);
+    }
   }, [checkSession]);
 
   // A view-as token expires server-side after 10 minutes. Drop it client-
   // side at the same moment so the UI doesn't sit on a dead token until
   // the next request 401s.
+  //
+  // No navigation here on purpose: this is the safety net that runs even
+  // if the banner is unmounted, and it has no router access. ViewAsBanner
+  // owns the navigation on expiry, since it is the thing actually
+  // counting down. Both are idempotent, so whichever fires first wins and
+  // the other is a no-op.
   useEffect(() => {
     if (!viewAs) return undefined;
     const ms = Math.max(0, viewAs.expiresAt - Date.now());
@@ -88,6 +147,7 @@ export function AuthProvider({ children }) {
     register,
     refreshUser: checkSession,
     viewAs,
+    switching,
     startViewAs,
     exitViewAs,
   };
@@ -100,9 +160,9 @@ AuthProvider.propTypes = {
 };
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (ctx === undefined) {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  return ctx;
+  return context;
 }
