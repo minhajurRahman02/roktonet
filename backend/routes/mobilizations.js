@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { logRequestEvent } = require('../services/requestEvents');
 const { notifyOrg } = require('../services/notificationService');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // GET /api/mobilizations - all mobilizations involving the caller's OWN
 // donors (i.e. donors whose donor.org_id matches this NGO), across every
@@ -25,6 +26,9 @@ const { notifyOrg } = require('../services/notificationService');
 // reason to make a donor wait until they've committed before finding out
 // who's asking and how to reach them.
 router.get('/', requireAuth, async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   try {
     if (req.user.role === 'donor') {
       const donorResult = await pool.query('SELECT donor_id FROM donors WHERE user_id = $1', [
@@ -35,8 +39,7 @@ router.get('/', requireAuth, async (req, res) => {
       }
       const donorId = donorResult.rows[0].donor_id;
 
-      const result = await pool.query(
-        `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
+      const donorRowsSql = `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
                 r.request_id, r.blood_type, r.component, r.urgency_tier,
                 o.name AS requesting_org_name, o.district AS requesting_org_district,
                 o.contact_phone AS requesting_org_phone, o.contact_email AS requesting_org_email
@@ -44,10 +47,21 @@ router.get('/', requireAuth, async (req, res) => {
          JOIN requests r ON r.request_id = dm.request_id
          JOIN organizations o ON o.org_id = r.org_id
          WHERE dm.donor_id = $1
-         ORDER BY dm.mobilization_id DESC`,
-        [donorId]
-      );
-      return res.json(result.rows);
+         ORDER BY dm.mobilization_id DESC`;
+
+      if (!pagination.paginated) {
+        const result = await pool.query(donorRowsSql, [donorId]);
+        return res.json(result.rows);
+      }
+      return res.json(await queryPage(pool, {
+        countSql: `SELECT COUNT(*)::int AS total FROM donor_mobilizations dm
+                   JOIN requests r ON r.request_id = dm.request_id
+                   JOIN organizations o ON o.org_id = r.org_id
+                   WHERE dm.donor_id = $1`,
+        rowsSql: donorRowsSql,
+        values: [donorId],
+        pagination,
+      }));
     }
 
     if (!['ngo', 'admin'].includes(req.user.role)) {
@@ -57,8 +71,7 @@ router.get('/', requireAuth, async (req, res) => {
     let orgId = req.user.org_id;
     if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
 
-    const result = await pool.query(
-      `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
+    const rowsSql = `SELECT dm.mobilization_id, dm.donor_id, dm.invite_status, dm.slot_date,
               d.full_name AS donor_name, d.blood_type AS donor_blood_type,
               r.request_id, r.urgency_tier, o.name AS requesting_org_name
        FROM donor_mobilizations dm
@@ -66,10 +79,22 @@ router.get('/', requireAuth, async (req, res) => {
        JOIN requests r ON r.request_id = dm.request_id
        JOIN organizations o ON o.org_id = r.org_id
        WHERE d.org_id = $1
-       ORDER BY dm.mobilization_id DESC`,
-      [orgId]
-    );
-    res.json(result.rows);
+       ORDER BY dm.mobilization_id DESC`;
+
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, [orgId]);
+      return res.json(result.rows);
+    }
+    res.json(await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM donor_mobilizations dm
+                 JOIN donors d ON d.donor_id = dm.donor_id
+                 JOIN requests r ON r.request_id = dm.request_id
+                 JOIN organizations o ON o.org_id = r.org_id
+                 WHERE d.org_id = $1`,
+      rowsSql,
+      values: [orgId],
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

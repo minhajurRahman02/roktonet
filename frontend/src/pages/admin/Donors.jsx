@@ -5,13 +5,15 @@ import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
+import Pagination from '../../components/molecules/Pagination';
 import Button from '../../components/atoms/Button';
 import Input from '../../components/atoms/Input';
 import Select from '../../components/atoms/Select';
 import DatalistInput from '../../components/atoms/DatalistInput';
 import FilterBar from '../../components/admin/FilterBar';
 import Modal from '../../components/admin/Modal';
-import { Table, Th, Td, TableFooter, fmtDate } from '../../components/admin/Table';
+import { Table, Th, Td, fmtDate } from '../../components/admin/Table';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { useAsync } from '../../hooks/useAsync';
 import { listDonors } from '../../api/donors';
 import { listOrganizations } from '../../api/organizations';
@@ -59,9 +61,22 @@ EligibilityCell.propTypes = { donor: PropTypes.object.isRequired };
 export default function AdminDonors() {
   const [filters, setFilters] = useState({ search: '', blood_type: '', org_id: '', eligibility_status: '', district: '', thana: '', has_login: '' });
   const [applied, setApplied] = useState({});
-  const donors = useAsync(() => listDonors(applied), [applied]);
+
+  // 7.7a: paginated. The loader receives the paging params and passes them
+  // straight through -- listDonors already serialises whatever object it
+  // is given, so no change was needed in api/donors.js.
+  const donors = usePaginatedAsync(
+    ({ page, per_page }) => listDonors({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.donors' }
+  );
+
   // Mockup change #3: these three dropdowns were empty. NGOs come from the
   // orgs endpoint filtered to ngo, districts from the canonical list.
+  //
+  // Deliberately NOT paginated: these populate <select> options and want
+  // every row, which is exactly the case the backend's opt-in design
+  // preserves. Calling them without per_page returns a bare array.
   const ngos = useAsync(() => listOrganizations({ org_type: 'ngo' }), []);
   const districts = useAsync(getDistricts, []);
   const [open, setOpen] = useState(null);
@@ -72,7 +87,7 @@ export default function AdminDonors() {
   // ambiguous.
   const [thanas, setThanas] = useState([]);
   useEffect(() => {
-    if (!filters.district) { setThanas([]); return; }
+    if (!filters.district) { setThanas([]); return undefined; }
     let cancelled = false;
     getThanas(filters.district)
       .then((list) => { if (!cancelled) setThanas(list); })
@@ -116,28 +131,33 @@ export default function AdminDonors() {
 
       {donors.status === 'loading' && <LoadingState rows={6} />}
       {donors.status === 'error' && <ErrorState message={donors.error} onRetry={donors.reload} />}
-      {donors.status === 'success' && donors.data.length === 0 && <EmptyState message="No donors match these filters." />}
+      {donors.isEmpty && <EmptyState message="No donors match these filters." />}
       {donors.status === 'success' && donors.data.length > 0 && (
-        <Table>
-          <thead><tr><Th>Name</Th><Th>Type</Th><Th>Sex</Th><Th>NGO</Th><Th>District</Th><Th>Eligibility (days until)</Th><Th>Last donation</Th><Th>Login</Th><Th> </Th></tr></thead>
-          <tbody>
-            {donors.data.map((d) => (
-              <tr key={d.donor_id}>
-                <Td className="font-medium">{d.full_name || <span className="text-gray-400">—</span>}</Td>
-                <Td>{d.blood_type}</Td>
-                <Td muted>{d.sex ? d.sex[0].toUpperCase() : '—'}</Td>
-                <Td>{d.org_name || <span className="text-gray-400">— (self-registered)</span>}</Td>
-                <Td muted>{d.current_district || '—'}</Td>
-                <Td><EligibilityCell donor={d} /></Td>
-                <Td muted>{d.last_donation_date ? `${fmtDate(d.last_donation_date)} · ${d.last_donation_component}` : 'never'}</Td>
-                <Td>{d.user_id ? '✓' : <span className="text-xs text-gray-400">assisted, no login</span>}</Td>
-                <Td>{d.user_id ? <Link to={`/admin/users/${d.user_id}`}><Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs">Open account</Button></Link> : <Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs" onClick={() => setOpen(d)}>Details</Button>}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+        <>
+          <Table>
+            <thead><tr><Th>Name</Th><Th>Type</Th><Th>Sex</Th><Th>NGO</Th><Th>District</Th><Th>Eligibility (days until)</Th><Th>Last donation</Th><Th>Login</Th><Th> </Th></tr></thead>
+            <tbody>
+              {donors.data.map((d) => (
+                <tr key={d.donor_id}>
+                  <Td className="font-medium">{d.full_name || <span className="text-gray-400">—</span>}</Td>
+                  <Td>{d.blood_type}</Td>
+                  <Td muted>{d.sex ? d.sex[0].toUpperCase() : '—'}</Td>
+                  <Td>{d.org_name || <span className="text-gray-400">— (self-registered)</span>}</Td>
+                  <Td muted>{d.current_district || '—'}</Td>
+                  <Td><EligibilityCell donor={d} /></Td>
+                  <Td muted>{d.last_donation_date ? `${fmtDate(d.last_donation_date)} · ${d.last_donation_component}` : 'never'}</Td>
+                  <Td>{d.user_id ? '✓' : <span className="text-xs text-gray-400">assisted, no login</span>}</Td>
+                  <Td>{d.user_id ? <Link to={`/admin/users/${d.user_id}`}><Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs">Open account</Button></Link> : <Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs" onClick={() => setOpen(d)}>Details</Button>}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <Pagination
+            page={donors.page} pageCount={donors.pageCount} total={donors.total} perPage={donors.perPage}
+            onPageChange={donors.setPage} onPerPageChange={donors.setPerPage} noun="donor"
+          />
+        </>
       )}
-      {donors.status === 'success' && donors.data.length > 0 && <TableFooter><span>{donors.data.length} donor(s)</span></TableFooter>}
 
       <Modal isOpen={!!open} onClose={() => setOpen(null)} title={open?.full_name || 'Donor'} subtitle="Assisted registration — no login account. Managed by their NGO.">
         {open && (

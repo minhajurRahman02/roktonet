@@ -13,6 +13,7 @@ const pool = require('../../db');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { logAdminAction } = require('../../services/adminAudit');
 const { parseDateRange, WhereBuilder } = require('./_helpers');
+const { parsePagination, queryPage } = require('../../utils/pagination');
 
 const VALID_ROLES = ['hospital', 'bank', 'ngo', 'donor', 'admin'];
 
@@ -112,12 +113,14 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
   const { from, to, error } = parseDateRange(req.query);
   if (error) return res.status(400).json({ error });
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   const w = new WhereBuilder();
   w.raw("a.action_type = 'broadcast_sent'");
   w.range('a.created_at', from, to);
-  try {
-    const result = await pool.query(
-      `SELECT a.action_id, a.target_id AS broadcast_id, a.details, a.created_at,
+
+  const rowsSql = `SELECT a.action_id, a.target_id AS broadcast_id, a.details, a.created_at,
               u.full_name AS admin_name, u.email AS admin_email,
               COUNT(n.notification_id) AS recipient_count,
               COUNT(n.notification_id) FILTER (WHERE n.is_read) AS read_count
@@ -126,10 +129,33 @@ router.get('/', async (req, res) => {
        LEFT JOIN notifications n ON n.broadcast_id = a.target_id
        ${w.clause()}
        GROUP BY a.action_id, u.full_name, u.email
-       ORDER BY a.created_at DESC`,
-      w.values
-    );
-    res.json(result.rows.map((r) => ({ ...r, recipient_count: Number(r.recipient_count), read_count: Number(r.read_count) })));
+       ORDER BY a.created_at DESC`;
+
+  const toNumbers = (rows) => rows.map((r) => ({
+    ...r, recipient_count: Number(r.recipient_count), read_count: Number(r.read_count),
+  }));
+
+  try {
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, w.values);
+      return res.json(toNumbers(result.rows));
+    }
+    // Counting broadcasts, not broadcast-recipient pairs. A plain COUNT(*)
+    // over the grouped query counts one row per group PER NOTIFICATION, so
+    // the total would come back several times too large and the page count
+    // would trail off into empty pages.
+    const page = await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM (
+                   SELECT a.action_id FROM admin_actions a
+                   JOIN users u ON u.user_id = a.admin_user_id
+                   ${w.clause()}
+                   GROUP BY a.action_id
+                 ) grouped`,
+      rowsSql,
+      values: w.values,
+      pagination,
+    });
+    res.json({ ...page, data: toNumbers(page.data) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

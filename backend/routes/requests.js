@@ -6,6 +6,7 @@ const { runAllocationBatch } = require('../services/engineClient');
 const { logRequestEvent } = require('../services/requestEvents');
 const { logAdminAction } = require('../services/adminAudit');
 const { notifyOrg } = require('../services/notificationService');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // POST /api/requests - submit a new blood request.
 // Hospital submits for their own org, any urgency except restock (that's
@@ -93,6 +94,9 @@ router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (re
   const { urgency_tier, fulfillment_path, district, from, to, cancelled, blood_type } = req.query;
   let { org_id } = req.query;
 
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   // Both hospital and bank users are auto-scoped to their own org -- a
   // bank's restock requests live in this same table, so it needs the
   // same self-scoping hospital already has, not a separate endpoint.
@@ -111,7 +115,29 @@ router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (re
     values.push(urgency_tier);
     conditions.push(`r.urgency_tier = $${values.length}`);
   }
-  if (fulfillment_path) {
+  // 7.7a: 'pending' is a real filter value now, not a client-side
+  // afterthought. It means "the engine has not resolved this yet", which
+  // is fulfillment_path IS NULL -- and it excludes cancelled rows, because
+  // a cancelled request is not waiting for anything.
+  //
+  // This had to move server-side for pagination to be correct. Filtering a
+  // page of 25 down to 3 in the browser and then reporting "3 of 143" is
+  // not a display bug, it is the page lying about what it searched.
+  if (fulfillment_path === 'pending') {
+    conditions.push('r.fulfillment_path IS NULL AND r.cancelled_at IS NULL');
+  } else if (fulfillment_path === 'resolved') {
+    // The mirror of 'pending'. Hospital My Requests and Bank Restock both
+    // offer a resolved/pending toggle and both were fetching everything
+    // and filtering in the browser, which server-side paging turns into a
+    // page that lies about what it searched.
+    //
+    // Cancelled rows are NOT excluded here, deliberately. A cancelled
+    // request can still carry the fulfillment_path it had before it was
+    // cancelled, and hiding it would make "resolved" and "pending" fail to
+    // add up to the unfiltered total -- the sum check that caught nothing
+    // last time precisely because the counts did reconcile.
+    conditions.push('r.fulfillment_path IS NOT NULL');
+  } else if (fulfillment_path) {
     values.push(fulfillment_path);
     conditions.push(`r.fulfillment_path = $${values.length}`);
   }
@@ -140,21 +166,39 @@ router.get('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (re
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  try {
-    // Joined with the org so every row carries hospital name/district and a
-    // units_allocated count -- the admin system-wide table needs both, and
-    // the existing role pages simply ignore the extra columns.
-    const result = await pool.query(
-      `SELECT r.*, o.name AS org_name, o.district AS org_district, o.org_type,
+  // Joined with the org so every row carries hospital name/district and a
+  // units_allocated count -- the admin system-wide table needs both, and
+  // the existing role pages simply ignore the extra columns.
+  //
+  // COUNT(DISTINCT unit_id) rather than COUNT(*). The unique constraint from
+  // migration_dedupe_allocations.sql makes those equivalent now, but this is
+  // the exact column that displayed "4 / 2" for a 2-unit request, and a count
+  // that cannot over-report even if a duplicate somehow lands again costs
+  // nothing.
+  const rowsSql = `SELECT r.*, o.name AS org_name, o.district AS org_district, o.org_type,
               COALESCE(a.units_allocated, 0)::int AS units_allocated
        FROM requests r
        JOIN organizations o ON o.org_id = r.org_id
-       LEFT JOIN (SELECT request_id, COUNT(*) AS units_allocated FROM allocation_records GROUP BY request_id) a
+       LEFT JOIN (SELECT request_id, COUNT(DISTINCT unit_id) AS units_allocated FROM allocation_records GROUP BY request_id) a
          ON a.request_id = r.request_id
-       ${whereClause} ORDER BY r.created_at DESC`,
-      values
-    );
-    res.json(result.rows);
+       ${whereClause} ORDER BY r.created_at DESC`;
+
+  try {
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, values);
+      return res.json(result.rows);
+    }
+    // The count repeats the same FROM and WHERE minus the allocation join,
+    // which cannot change the row count: it is a LEFT JOIN against a grouped
+    // subquery, so at most one row per request.
+    const page = await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM requests r
+                 JOIN organizations o ON o.org_id = r.org_id ${whereClause}`,
+      rowsSql,
+      values,
+      pagination,
+    });
+    res.json(page);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

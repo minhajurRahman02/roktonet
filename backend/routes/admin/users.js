@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const pool = require('../../db');
 const { requireAuth, requireRole, requirePrimaryAdmin } = require('../../middleware/auth');
+const { parsePagination, queryPage } = require('../../utils/pagination');
 const { logAdminAction } = require('../../services/adminAudit');
 const { sendPasswordResetEmail } = require('../../services/emailService');
 const { parseDateRange, WhereBuilder } = require('./_helpers');
@@ -34,6 +35,8 @@ router.get('/', async (req, res) => {
   const { role, org_id, is_verified, is_active, search } = req.query;
   const { from, to, error } = parseDateRange(req.query);
   if (error) return res.status(400).json({ error });
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
 
   const w = new WhereBuilder();
   w.add('u.role = ?', role);
@@ -46,16 +49,27 @@ router.get('/', async (req, res) => {
   }
   w.range('u.created_at', from, to);
 
-  try {
-    const result = await pool.query(
-      `SELECT ${USER_COLUMNS}, o.name AS org_name, o.org_type
+  const rowsSql = `SELECT ${USER_COLUMNS}, o.name AS org_name, o.org_type
        FROM users u
        LEFT JOIN organizations o ON o.org_id = u.org_id
        ${w.clause()}
-       ORDER BY u.created_at DESC`,
-      w.values
-    );
-    res.json(result.rows);
+       ORDER BY u.created_at DESC`;
+
+  try {
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, w.values);
+      return res.json(result.rows);
+    }
+    // The LEFT JOIN stays in the count even though a left join cannot drop
+    // rows, because w.clause() may contain conditions on o.* columns which
+    // would fail to parse without it.
+    res.json(await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM users u
+                 LEFT JOIN organizations o ON o.org_id = u.org_id ${w.clause()}`,
+      rowsSql,
+      values: w.values,
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -78,13 +92,19 @@ router.get('/:id', async (req, res) => {
     const bundle = {};
 
     if (user.role === 'hospital' && user.org_id) {
-      const r = await pool.query(
-        `SELECT request_id, blood_type, component, quantity, urgency_tier, fulfillment_path,
-                needed_by_date, cancelled_at, created_at
-         FROM requests WHERE org_id = $1 ORDER BY created_at DESC LIMIT 100`,
-        [user.org_id]
-      );
+      const [r, c] = await Promise.all([
+        pool.query(
+          `SELECT request_id, blood_type, component, quantity, urgency_tier, fulfillment_path,
+                  needed_by_date, cancelled_at, created_at
+           FROM requests WHERE org_id = $1 ORDER BY created_at DESC LIMIT 100`,
+          [user.org_id]
+        ),
+        pool.query('SELECT COUNT(*)::int AS total FROM requests WHERE org_id = $1', [user.org_id]),
+      ]);
       bundle.requests = r.rows;
+      // 7.7a: so the UI can say "showing 100 of 247" rather than presenting
+      // a truncated list as if it were everything.
+      bundle.requests_total = c.rows[0].total;
     }
 
     if ((user.role === 'bank' || user.role === 'ngo') && user.org_id) {
@@ -119,6 +139,25 @@ router.get('/:id', async (req, res) => {
       bundle.outgoing_allocations = alloc.rows;
       bundle.drives = drives.rows;
       bundle.restock_requests = restock.rows;
+
+      // 7.7a: real totals behind the LIMIT 200 / 100 / 50 caps above.
+      // `drives` has no cap, so its length is already the truth.
+      const [invC, allocC, restockC] = await Promise.all([
+        pool.query('SELECT COUNT(*)::int AS total FROM inventory_units WHERE org_id = $1', [user.org_id]),
+        pool.query(
+          `SELECT COUNT(*)::int AS total FROM allocation_records ar
+           JOIN inventory_units iu ON iu.unit_id = ar.unit_id WHERE iu.org_id = $1`,
+          [user.org_id]
+        ),
+        pool.query(
+          `SELECT COUNT(*)::int AS total FROM requests
+           WHERE org_id = $1 AND urgency_tier = 'restock'`,
+          [user.org_id]
+        ),
+      ]);
+      bundle.inventory_total = invC.rows[0].total;
+      bundle.outgoing_allocations_total = allocC.rows[0].total;
+      bundle.restock_requests_total = restockC.rows[0].total;
     }
 
     if (user.role === 'donor') {
@@ -157,22 +196,34 @@ router.get('/:id', async (req, res) => {
     }
 
     if (user.role === 'admin') {
-      const actions = await pool.query(
-        `SELECT action_id, action_type, target_type, target_id, details, created_at
-         FROM admin_actions WHERE admin_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
-        [user.user_id]
-      );
+      const [actions, actionsC] = await Promise.all([
+        pool.query(
+          `SELECT action_id, action_type, target_type, target_id, details, created_at
+           FROM admin_actions WHERE admin_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+          [user.user_id]
+        ),
+        pool.query('SELECT COUNT(*)::int AS total FROM admin_actions WHERE admin_user_id = $1', [user.user_id]),
+      ]);
       bundle.recent_actions = actions.rows;
+      bundle.recent_actions_total = actionsC.rows[0].total;
     }
 
     // Notifications addressed to this user directly (broadcasts) or their org.
-    const notifs = await pool.query(
-      `SELECT notification_id, type, message, is_read, created_at
-       FROM notifications WHERE user_id = $1 OR ($2::uuid IS NOT NULL AND org_id = $2)
-       ORDER BY created_at DESC LIMIT 20`,
-      [user.user_id, user.org_id]
-    );
+    const [notifs, notifsC] = await Promise.all([
+      pool.query(
+        `SELECT notification_id, type, message, is_read, created_at
+         FROM notifications WHERE user_id = $1 OR ($2::uuid IS NOT NULL AND org_id = $2)
+         ORDER BY created_at DESC LIMIT 20`,
+        [user.user_id, user.org_id]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS total FROM notifications
+         WHERE user_id = $1 OR ($2::uuid IS NOT NULL AND org_id = $2)`,
+        [user.user_id, user.org_id]
+      ),
+    ]);
     bundle.notifications = notifs.rows;
+    bundle.notifications_total = notifsC.rows[0].total;
 
     res.json({ user, ...bundle });
   } catch (err) {

@@ -6,6 +6,7 @@ import { apiFetch } from './client';
  * getAllocation(requestId) in api/requests.js which looks up one
  * request's sources.
  */
-export function listOutgoingAllocations() {
-  return apiFetch('/api/allocations');
+export function listOutgoingAllocations(filters = {}) {
+  const params = new URLSearchParams(filters).toString();
+  return apiFetch(`/api/allocations${params ? `?${params}` : ''}`);
 }

@@ -7,8 +7,10 @@ import Button from '../../components/atoms/Button';
 import Select from '../../components/atoms/Select';
 import FilterBar from '../../components/admin/FilterBar';
 import DateRangeFilter, { rangeToQuery, defaultRange } from '../../components/admin/DateRangeFilter';
-import { Table, Th, Td, TableFooter, shortId } from '../../components/admin/Table';
+import Pagination from '../../components/molecules/Pagination';
+import { Table, Th, Td, shortId } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listAudit, listUsers } from '../../api/admin';
 import { relativeTime } from '../../utils/relativeTime';
 
@@ -38,12 +40,16 @@ function details(d) {
 export default function AdminAuditLog() {
   const [filters, setFilters] = useState({ action_type: '', admin_user_id: '', target_type: '' });
   const [range, setRange] = useState({ ...defaultRange(30), allTime: true });
-  const [applied, setApplied] = useState({ limit: 300 });
-  const audit = useAsync(() => listAudit(applied), [applied]);
+  const [applied, setApplied] = useState({});
+  const audit = usePaginatedAsync(
+    ({ page, per_page }) => listAudit({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.auditLog' }
+  );
   const admins = useAsync(() => listUsers({ role: 'admin' }), []);
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied({ ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '')), ...rangeToQuery(range), limit: 300 }); };
+  const apply = (e) => { e.preventDefault(); setApplied({ ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '')), ...rangeToQuery(range) }); };
 
   return (
     <div className="p-6">
@@ -77,7 +83,14 @@ export default function AdminAuditLog() {
           </tbody>
         </Table>
       )}
-      {audit.status === 'success' && audit.data.length > 0 && <TableFooter><span>{audit.data.length} action(s){audit.data.length === 300 ? ' (showing the latest 300 — narrow the filters for more)' : ''}</span></TableFooter>}
+      {/* The "showing the latest 300" caveat is gone: the endpoint now
+          reports the real total, so the count is the count. */}
+      {audit.status === 'success' && audit.data.length > 0 && (
+        <Pagination
+          page={audit.page} pageCount={audit.pageCount} total={audit.total} perPage={audit.perPage}
+          onPageChange={audit.setPage} onPerPageChange={audit.setPerPage} noun="action"
+        />
+      )}
     </div>
   );
 }

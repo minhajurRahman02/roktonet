@@ -5,6 +5,8 @@ import { Line, Doughnut } from 'react-chartjs-2';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
+import Pagination from '../../components/molecules/Pagination';
+import { useClientPagination } from '../../hooks/usePaginatedAsync';
 import { getDrive, getDriveLog } from '../../api/drives';
 
 ChartJS.register(LineElement, PointElement, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -72,6 +74,19 @@ export default function DriveLog() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 7.7a: the TABLE pages client-side; the CHART does not.
+  //
+  // buildChart() counts the whole log into time buckets to draw the
+  // cumulative collection curve. Hand it one page and every point on that
+  // curve is wrong -- the same failure that paginating the Overview pages
+  // would cause. So `log` stays whole for the chart, and only the table
+  // below renders a slice of it.
+  //
+  // Client-side rather than server-side because /api/drives/:id/log is a
+  // single drive's log, bounded by how many units one drive collects, and
+  // because the chart needs the full array in memory regardless.
+  const paged = useClientPagination(log, { storageKey: 'ngo.driveLog', defaultPerPage: 25 });
 
   if (status === 'loading') {
     return (
@@ -197,7 +212,7 @@ export default function DriveLog() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-white/5">
-                {log.map((entry) => (
+                {paged.pageItems.map((entry) => (
                   <tr key={entry.unit_id}>
                     <td className="px-4 py-3 font-medium dark:text-textprimary-dark">{entry.donor_name || '—'}</td>
                     <td className="px-4 py-3 dark:text-textprimary-dark">{entry.blood_type}</td>
@@ -210,6 +225,10 @@ export default function DriveLog() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={paged.page} pageCount={paged.pageCount} total={paged.total} perPage={paged.perPage}
+            onPageChange={paged.setPage} onPerPageChange={paged.setPerPage} noun="entry"
+          />
         </>
       )}
     </div>

@@ -6,8 +6,10 @@ import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
 import Button from '../../components/atoms/Button';
 import DateRangeFilter, { rangeToQuery, defaultRange } from '../../components/admin/DateRangeFilter';
+import Pagination from '../../components/molecules/Pagination';
 import { Table, Th, Td } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { getReportCatalog, downloadReport } from '../../api/reports';
 import { listAudit } from '../../api/admin';
 import { relativeTime } from '../../utils/relativeTime';
@@ -35,7 +37,15 @@ function filename(dataset, format, range) {
 
 export default function AdminReports() {
   const catalog = useAsync(getReportCatalog, []);
-  const recent = useAsync(() => listAudit({ action_type: 'report_generated', limit: 10 }), []);
+  // per_page, not limit. On this endpoint `limit` still means "cap the
+  // results and return a bare array", which is what it meant before
+  // pagination existed and what AuditLog.jsx relied on. Passing per_page
+  // is what asks for the envelope.
+  const recent = usePaginatedAsync(
+    ({ page, per_page }) => listAudit({ action_type: 'report_generated', page, per_page }),
+    [],
+    { storageKey: 'admin.recentDownloads', defaultPerPage: 10 }
+  );
   const [dataset, setDataset] = useState('requests');
   const [format, setFormat] = useState('csv');
   // Mockup change #2: "All time" is a first-class option next to the pickers.
@@ -98,21 +108,27 @@ export default function AdminReports() {
         {recent.status === 'error' && <ErrorState message={recent.error} onRetry={recent.reload} />}
         {recent.status === 'success' && recent.data.length === 0 && <EmptyState message="No reports generated yet." />}
         {recent.status === 'success' && recent.data.length > 0 && (
-          <Table className="!border-0">
-            <thead><tr><Th>When</Th><Th>Report</Th><Th>Format</Th><Th>Window</Th><Th>Rows</Th><Th>By</Th></tr></thead>
-            <tbody>
-              {recent.data.map((a) => (
-                <tr key={a.action_id}>
-                  <Td muted>{relativeTime(a.created_at)}</Td>
-                  <Td>{a.details?.report}</Td>
-                  <Td><span className="text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-textsecondary-dark">{a.details?.format}</span></Td>
-                  <Td muted>{a.details?.from ? a.details.from.slice(0, 10) : 'all time'} → {a.details?.to ? a.details.to.slice(0, 10) : 'now'}</Td>
-                  <Td>{a.details?.rows}</Td>
-                  <Td>{a.admin_name || a.admin_email}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+          <>
+            <Table className="!border-0">
+              <thead><tr><Th>When</Th><Th>Report</Th><Th>Format</Th><Th>Window</Th><Th>Rows</Th><Th>By</Th></tr></thead>
+              <tbody>
+                {recent.data.map((a) => (
+                  <tr key={a.action_id}>
+                    <Td muted>{relativeTime(a.created_at)}</Td>
+                    <Td>{a.details?.report}</Td>
+                    <Td><span className="text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-textsecondary-dark">{a.details?.format}</span></Td>
+                    <Td muted>{a.details?.from ? a.details.from.slice(0, 10) : 'all time'} → {a.details?.to ? a.details.to.slice(0, 10) : 'now'}</Td>
+                    <Td>{a.details?.rows}</Td>
+                    <Td>{a.admin_name || a.admin_email}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            <Pagination
+              page={recent.page} pageCount={recent.pageCount} total={recent.total} perPage={recent.perPage}
+              onPageChange={recent.setPage} onPerPageChange={recent.setPerPage} noun="download"
+            />
+          </>
         )}
       </div>
     </div>

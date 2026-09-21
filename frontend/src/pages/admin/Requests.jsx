@@ -13,8 +13,10 @@ import FilterBar from '../../components/admin/FilterBar';
 import StatusBadge from '../../components/admin/StatusBadge';
 import Modal from '../../components/admin/Modal';
 import DateRangeFilter, { rangeToQuery, defaultRange } from '../../components/admin/DateRangeFilter';
-import { Table, Th, Td, TableFooter, shortId } from '../../components/admin/Table';
+import Pagination from '../../components/molecules/Pagination';
+import { Table, Th, Td, shortId } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listRequests } from '../../api/requests';
 import { cancelRequest } from '../../api/admin';
 import { getDistricts } from '../../api/locations';
@@ -24,15 +26,21 @@ import { relativeTime } from '../../utils/relativeTime';
 export default function AdminRequests() {
   const [filters, setFilters] = useState({ urgency_tier: '', fulfillment_path: '', district: '', blood_type: '', cancelled: 'false' });
   const [range, setRange] = useState({ ...defaultRange(90), allTime: true });
-  // 'pending' is a derived filter (fulfillment_path IS NULL) the backend
-  // has no value for -- it's stripped from the query and applied client-side.
+  // 7.7a: 'pending' is now a real backend filter value (fulfillment_path
+  // IS NULL AND cancelled_at IS NULL), so it is no longer stripped out and
+  // re-applied in the browser. That had to change for pagination to tell
+  // the truth -- filtering a server page of 25 down to 3 locally and then
+  // displaying "3 of 143" is the page lying about what it searched.
   const buildQuery = (f, r) => {
     const q = { ...f, ...rangeToQuery(r) };
-    if (q.fulfillment_path === 'pending') q.fulfillment_path = '';
     return Object.fromEntries(Object.entries(q).filter(([, v]) => v !== ''));
   };
-  const [applied, setApplied] = useState({ query: buildQuery(filters, range), pendingOnly: false });
-  const requests = useAsync(() => listRequests(applied.query), [applied]);
+  const [applied, setApplied] = useState(buildQuery(filters, range));
+  const requests = usePaginatedAsync(
+    ({ page, per_page }) => listRequests({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.requests' }
+  );
   const districts = useAsync(getDistricts, []);
   const [tracking, setTracking] = useState(null);
   const [cancelling, setCancelling] = useState(null);
@@ -42,7 +50,7 @@ export default function AdminRequests() {
   const [done, setDone] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied({ query: buildQuery(filters, range), pendingOnly: filters.fulfillment_path === 'pending' }); };
+  const apply = (e) => { e.preventDefault(); setApplied(buildQuery(filters, range)); };
 
   const confirmCancel = async () => {
     setBusy(true); setErr('');
@@ -53,7 +61,9 @@ export default function AdminRequests() {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
-  const rows = (requests.data || []).filter((r) => !applied.pendingOnly || (!r.fulfillment_path && !r.cancelled_at));
+  // No client-side filtering any more: the server returns exactly the rows
+  // that match, so what is on screen and what the count claims agree.
+  const rows = requests.data || [];
 
   return (
     <div className="p-6">
@@ -102,7 +112,12 @@ export default function AdminRequests() {
           </tbody>
         </Table>
       )}
-      {requests.status === 'success' && rows.length > 0 && <TableFooter><span>{rows.length} request(s)</span></TableFooter>}
+      {requests.status === 'success' && rows.length > 0 && (
+        <Pagination
+          page={requests.page} pageCount={requests.pageCount} total={requests.total} perPage={requests.perPage}
+          onPageChange={requests.setPage} onPerPageChange={requests.setPerPage} noun="request"
+        />
+      )}
 
       <RequestTrackingModal requestId={tracking} isOpen={!!tracking} onClose={() => setTracking(null)} />
 

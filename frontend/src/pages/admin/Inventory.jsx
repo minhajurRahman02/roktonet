@@ -11,8 +11,10 @@ import Select from '../../components/atoms/Select';
 import FilterBar from '../../components/admin/FilterBar';
 import StatusBadge from '../../components/admin/StatusBadge';
 import Modal from '../../components/admin/Modal';
-import { Table, Th, Td, TableFooter, shortId, fmtDate } from '../../components/admin/Table';
+import Pagination from '../../components/molecules/Pagination';
+import { Table, Th, Td, shortId, fmtDate } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listInventory } from '../../api/inventory';
 import { updateInventoryUnit } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
@@ -33,7 +35,11 @@ function ExpiryBadge({ days }) {
 export default function AdminInventory() {
   const [filters, setFilters] = useState({ org_id: '', status: '', blood_type: '', component: '', district: '', expiring_within_days: '' });
   const [applied, setApplied] = useState({});
-  const units = useAsync(() => listInventory(applied), [applied]);
+  const units = usePaginatedAsync(
+    ({ page, per_page }) => listInventory({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.inventory' }
+  );
   const orgs = useAsync(() => listOrganizations(), []);
   const districts = useAsync(getDistricts, []);
   const [editing, setEditing] = useState(null);
@@ -104,7 +110,12 @@ export default function AdminInventory() {
           </tbody>
         </Table>
       )}
-      {units.status === 'success' && units.data.length > 0 && <TableFooter><span>{units.data.length} unit(s)</span></TableFooter>}
+      {units.status === 'success' && units.data.length > 0 && (
+        <Pagination
+          page={units.page} pageCount={units.pageCount} total={units.total} perPage={units.perPage}
+          onPageChange={units.setPage} onPerPageChange={units.setPerPage} noun="unit"
+        />
+      )}
 
       <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Edit inventory unit"
         subtitle={editing && <>{editing.org_name} · <span className="font-mono text-xs">{shortId(editing.unit_id)}</span> · currently <StatusBadge value={editing.status} /></>}

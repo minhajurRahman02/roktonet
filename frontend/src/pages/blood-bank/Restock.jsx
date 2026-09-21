@@ -1,45 +1,36 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
 import RequestCard from '../../components/molecules/RequestCard';
+import Pagination from '../../components/molecules/Pagination';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listRequests } from '../../api/requests';
 
 export default function Restock() {
-  const [status, setStatus] = useState('loading');
-  const [requests, setRequests] = useState([]);
-  const [errorMessage, setErrorMessage] = useState('');
   const [resolveFilter, setResolveFilter] = useState('');
 
-  const load = useCallback(() => {
-    setStatus('loading');
-    // Every request a bank submits is already restock-tier (enforced
-    // server-side), so there's no urgency filter here the way Hospital's
-    // My Requests has one -- there's only one tier to show.
-    listRequests()
-      .then((data) => {
-        const filtered =
-          resolveFilter === 'resolved'
-            ? data.filter((r) => r.fulfillment_path)
-            : resolveFilter === 'pending'
-              ? data.filter((r) => !r.fulfillment_path)
-              : data;
-        setRequests(filtered);
-        setStatus('success');
-      })
-      .catch((err) => {
-        setErrorMessage(err.message);
-        setStatus('error');
-      });
-  }, [resolveFilter]);
+  // Every request a bank submits is already restock-tier (enforced
+  // server-side), so there's no urgency filter here the way Hospital's
+  // My Requests has one -- there's only one tier to show.
+  //
+  // 7.7a: the resolved/pending filter is server-side now. It used to fetch
+  // every restock request and filter in the browser, which paging would
+  // turn into a count that disagrees with what is on screen.
+  const filters = useMemo(
+    () => (resolveFilter ? { fulfillment_path: resolveFilter } : {}),
+    [resolveFilter]
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const requests = usePaginatedAsync(
+    ({ page, per_page }) => listRequests({ ...filters, page, per_page }),
+    [filters],
+    { storageKey: 'bank.restock' }
+  );
 
   return (
     <div className="p-6">
@@ -61,21 +52,27 @@ export default function Restock() {
         </Select>
       </div>
 
-      {status === 'loading' && <LoadingState rows={5} />}
-      {status === 'error' && <ErrorState message={`Couldn't load your restock requests: ${errorMessage}`} onRetry={load} />}
-      {status === 'success' && requests.length === 0 && (
+      {requests.status === 'loading' && <LoadingState rows={5} />}
+      {requests.status === 'error' && <ErrorState message={`Couldn't load your restock requests: ${requests.error}`} onRetry={requests.reload} />}
+      {requests.isEmpty && (
         <EmptyState
           message="No restock requests match this filter."
           actionLabel="Clear filter"
           onAction={() => setResolveFilter('')}
         />
       )}
-      {status === 'success' && requests.length > 0 && (
-        <div className="space-y-2">
-          {requests.map((r) => (
-            <RequestCard key={r.request_id} request={r} basePath="/blood-bank/restock" />
-          ))}
-        </div>
+      {requests.status === 'success' && requests.data.length > 0 && (
+        <>
+          <div className="space-y-2">
+            {requests.data.map((r) => (
+              <RequestCard key={r.request_id} request={r} basePath="/blood-bank/restock" />
+            ))}
+          </div>
+          <Pagination
+            page={requests.page} pageCount={requests.pageCount} total={requests.total} perPage={requests.perPage}
+            onPageChange={requests.setPage} onPerPageChange={requests.setPerPage} noun="restock request"
+          />
+        </>
       )}
     </div>
   );

@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
+import Pagination from '../../components/molecules/Pagination';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listInventory } from '../../api/inventory';
 
 const STATUS_STYLE = {
@@ -17,32 +19,36 @@ const STATUS_STYLE = {
 };
 
 export default function MyInventory() {
-  const [status, setStatus] = useState('loading');
-  const [units, setUnits] = useState([]);
-  const [errorMessage, setErrorMessage] = useState('');
   const [bloodTypeFilter, setBloodTypeFilter] = useState('');
   const [componentFilter, setComponentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const load = useCallback(() => {
-    setStatus('loading');
-    const filters = {};
-    if (bloodTypeFilter) filters.blood_type = bloodTypeFilter;
-    if (componentFilter) filters.component = componentFilter;
-    listInventory(filters)
-      .then((data) => {
-        setUnits(statusFilter ? data.filter((u) => u.status === statusFilter) : data);
-        setStatus('success');
-      })
-      .catch((err) => {
-        setErrorMessage(err.message);
-        setStatus('error');
-      });
+  // 7.7a: status is sent to the server now.
+  //
+  // Blood type and component were always query params, but status was
+  // fetched-then-filtered in the browser:
+  //   setUnits(statusFilter ? data.filter((u) => u.status === statusFilter) : data)
+  //
+  // GET /api/inventory has accepted a `status` param the whole time; this
+  // page simply never used it. That was invisible while the page fetched
+  // everything, and becomes a wrong count the moment paging is added --
+  // 25 rows fetched, 6 kept, "6 of 210" displayed.
+  //
+  // No backend change was needed for this one, unlike the resolved/pending
+  // filters on My Requests and Restock.
+  const filters = useMemo(() => {
+    const f = {};
+    if (bloodTypeFilter) f.blood_type = bloodTypeFilter;
+    if (componentFilter) f.component = componentFilter;
+    if (statusFilter) f.status = statusFilter;
+    return f;
   }, [bloodTypeFilter, componentFilter, statusFilter]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const units = usePaginatedAsync(
+    ({ page, per_page }) => listInventory({ ...filters, page, per_page }),
+    [filters],
+    { storageKey: 'bank.myInventory' }
+  );
 
   return (
     <div className="p-6">
@@ -79,9 +85,9 @@ export default function MyInventory() {
         </Select>
       </div>
 
-      {status === 'loading' && <LoadingState rows={5} />}
-      {status === 'error' && <ErrorState message={`Couldn't load your inventory: ${errorMessage}`} onRetry={load} />}
-      {status === 'success' && units.length === 0 && (
+      {units.status === 'loading' && <LoadingState rows={5} />}
+      {units.status === 'error' && <ErrorState message={`Couldn't load your inventory: ${units.error}`} onRetry={units.reload} />}
+      {units.isEmpty && (
         <EmptyState
           message="No units match these filters."
           actionLabel="Clear filters"
@@ -92,39 +98,45 @@ export default function MyInventory() {
           }}
         />
       )}
-      {status === 'success' && units.length > 0 && (
-        <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-gray-50 dark:bg-white/5 text-left text-xs text-gray-500 dark:text-textsecondary-dark">
-              <tr>
-                <th className="px-4 py-3 font-medium">Blood type</th>
-                <th className="px-4 py-3 font-medium">Component</th>
-                <th className="px-4 py-3 font-medium">Collected</th>
-                <th className="px-4 py-3 font-medium">Expires</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-white/5">
-              {units.map((unit) => (
-                <tr key={unit.unit_id}>
-                  <td className="px-4 py-3 font-medium dark:text-textprimary-dark">{unit.blood_type}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-textsecondary-dark capitalize">{unit.component.replace('_', ' ')}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
-                    {new Date(unit.collection_date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
-                    {new Date(unit.expiry_date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLE[unit.status] || STATUS_STYLE.available}`}>
-                      {unit.status}
-                    </span>
-                  </td>
+      {units.status === 'success' && units.data.length > 0 && (
+        <>
+          <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
+              <thead className="bg-gray-50 dark:bg-white/5 text-left text-xs text-gray-500 dark:text-textsecondary-dark">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Blood type</th>
+                  <th className="px-4 py-3 font-medium">Component</th>
+                  <th className="px-4 py-3 font-medium">Collected</th>
+                  <th className="px-4 py-3 font-medium">Expires</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-white/5">
+                {units.data.map((unit) => (
+                  <tr key={unit.unit_id}>
+                    <td className="px-4 py-3 font-medium dark:text-textprimary-dark">{unit.blood_type}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-textsecondary-dark capitalize">{unit.component.replace('_', ' ')}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
+                      {new Date(unit.collection_date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-textsecondary-dark mono text-xs">
+                      {new Date(unit.expiry_date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLE[unit.status] || STATUS_STYLE.available}`}>
+                        {unit.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={units.page} pageCount={units.pageCount} total={units.total} perPage={units.perPage}
+            onPageChange={units.setPage} onPerPageChange={units.setPerPage} noun="unit"
+          />
+        </>
       )}
     </div>
   );

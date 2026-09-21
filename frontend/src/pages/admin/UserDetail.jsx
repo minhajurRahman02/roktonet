@@ -22,6 +22,41 @@ import { relativeTime } from '../../utils/relativeTime';
 
 const ORG_ROLES = ['hospital', 'bank', 'ngo'];
 
+// 7.7a: which tabs are capped server-side, and where the full list lives.
+//
+// GET /api/admin/users/:id caps these (200 inventory, 100 allocations, 50
+// restock, 50 actions, 20 notifications) and returns the whole bundle as
+// ONE response, so the tabs cannot each take a ?page= of their own.
+// Rather than split into five sub-endpoints, the backend now reports the
+// real totals and this map lets the UI say so out loud.
+//
+// Tabs absent from this map are genuinely uncapped (drives, donation
+// history, invites) and need no note.
+const TAB_TOTALS = {
+  requests: { key: 'requests_total', noun: 'requests', href: '/admin/requests' },
+  inventory: { key: 'inventory_total', noun: 'units', href: '/admin/inventory' },
+  outgoing_allocations: { key: 'outgoing_allocations_total', noun: 'allocations' },
+  restock_requests: { key: 'restock_requests_total', noun: 'restock requests', href: '/admin/requests' },
+  recent_actions: { key: 'recent_actions_total', noun: 'actions', href: '/admin/audit' },
+  notifications: { key: 'notifications_total', noun: 'notifications' },
+};
+
+/** Renders nothing while everything fits, which is the normal case. */
+function TruncationNote({ tab, d }) {
+  const meta = TAB_TOTALS[tab];
+  if (!meta) return null;
+  const shown = d[tab]?.length || 0;
+  const total = d[meta.key];
+  if (!total || total <= shown) return null;
+  return (
+    <p className="px-4 py-2 text-xs text-urgent-text dark:text-urgent-dtext">
+      Showing the most recent {shown} of {total} {meta.noun}.
+      {meta.href && <> <Link to={meta.href} className="underline">Open the full list</Link> for the rest.</>}
+    </p>
+  );
+}
+TruncationNote.propTypes = { tab: PropTypes.string.isRequired, d: PropTypes.object.isRequired };
+
 function initials(name, email) {
   const src = name || email || '?';
   return src.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -73,6 +108,7 @@ function TabContent({ tab, d }) {
   if (!rows || rows.length === 0) return <EmptyState message="Nothing here." />;
   const t = { tab };
   return (
+    <>
     <Table>
       {t.tab === 'requests' || t.tab === 'restock_requests' ? (
         <>
@@ -116,6 +152,8 @@ function TabContent({ tab, d }) {
         </>
       )}
     </Table>
+    <TruncationNote tab={tab} d={d} />
+    </>
   );
 }
 
@@ -172,9 +210,7 @@ export default function AdminUserDetail() {
       // while the router was still on /admin/users/:id, so
       // RoleRoute(['admin']) redirected to /unauthorized and unmounted
       // this component -- and the navigate on the next line then ran from
-      // a dead component and did nothing. The admin was left on the
-      // unauthorized page, where the "Go to your dashboard" button was
-      // quietly finishing the routing this line was supposed to do.
+      // a dead component and did nothing.
       await startViewAs(
         res.token,
         res.viewing,

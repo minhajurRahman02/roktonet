@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { getEligibility, isUnderAnnualCap } = require('../services/eligibility');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // Same shelf-life reference ranges already used by Blood Bank's Add
 // Inventory Unit -- reused here rather than reinvented, so a unit logged
@@ -60,6 +61,9 @@ router.post('/', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
 // organization name/district so the frontend doesn't need a second call
 // per card.
 router.get('/', requireAuth, async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   if (req.user.role === 'donor') {
     const { org_id, district, status } = req.query;
     const conditions = [];
@@ -79,17 +83,24 @@ router.get('/', requireAuth, async (req, res) => {
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    try {
-      const result = await pool.query(
-        `SELECT dd.*, o.name AS org_name, o.district AS org_district,
+    const driveRowsSql = `SELECT dd.*, o.name AS org_name, o.district AS org_district,
                 o.contact_phone AS org_contact_phone, o.contact_email AS org_contact_email
          FROM donor_drives dd
          JOIN organizations o ON o.org_id = dd.org_id
          ${whereClause}
-         ORDER BY dd.created_at DESC`,
-        values
-      );
-      return res.json(result.rows);
+         ORDER BY dd.created_at DESC`;
+    try {
+      if (!pagination.paginated) {
+        const result = await pool.query(driveRowsSql, values);
+        return res.json(result.rows);
+      }
+      return res.json(await queryPage(pool, {
+        countSql: `SELECT COUNT(*)::int AS total FROM donor_drives dd
+                   JOIN organizations o ON o.org_id = dd.org_id ${whereClause}`,
+        rowsSql: driveRowsSql,
+        values,
+        pagination,
+      }));
     } catch (err) {
       console.error(err);
       return res.status(500).json({ error: err.message });
@@ -104,11 +115,19 @@ router.get('/', requireAuth, async (req, res) => {
   if (req.user.role === 'admin' && req.query.org_id) orgId = req.query.org_id;
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM donor_drives WHERE org_id = $1 ORDER BY created_at DESC',
-      [orgId]
-    );
-    res.json(result.rows);
+    if (!pagination.paginated) {
+      const result = await pool.query(
+        'SELECT * FROM donor_drives WHERE org_id = $1 ORDER BY created_at DESC',
+        [orgId]
+      );
+      return res.json(result.rows);
+    }
+    res.json(await queryPage(pool, {
+      countSql: 'SELECT COUNT(*)::int AS total FROM donor_drives WHERE org_id = $1',
+      rowsSql: 'SELECT * FROM donor_drives WHERE org_id = $1 ORDER BY created_at DESC',
+      values: [orgId],
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

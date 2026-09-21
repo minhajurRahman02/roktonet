@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAdminAction } = require('../services/adminAudit');
 const { notifyOrg } = require('../services/notificationService');
 const { logRequestEvent } = require('../services/requestEvents');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // GET /api/inventory - list inventory, filterable by blood_type, component.
 // Auto-scoped to the caller's own org for bank/ngo, same pattern as
@@ -22,6 +23,9 @@ const { logRequestEvent } = require('../services/requestEvents');
 router.get('/', requireAuth, async (req, res) => {
   const { blood_type, component } = req.query;
   let { org_id } = req.query;
+
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
 
   if (req.user.role === 'donor') {
     const donorResult = await pool.query('SELECT donor_id FROM donors WHERE user_id = $1', [
@@ -42,12 +46,18 @@ router.get('/', requireAuth, async (req, res) => {
       conditions.push(`component = $${values.length}`);
     }
 
+    const donorRowsSql = `SELECT * FROM inventory_units WHERE ${conditions.join(' AND ')} ORDER BY collection_date DESC`;
     try {
-      const result = await pool.query(
-        `SELECT * FROM inventory_units WHERE ${conditions.join(' AND ')} ORDER BY collection_date DESC`,
-        values
-      );
-      return res.json(result.rows);
+      if (!pagination.paginated) {
+        const result = await pool.query(donorRowsSql, values);
+        return res.json(result.rows);
+      }
+      return res.json(await queryPage(pool, {
+        countSql: `SELECT COUNT(*)::int AS total FROM inventory_units WHERE ${conditions.join(' AND ')}`,
+        rowsSql: donorRowsSql,
+        values,
+        pagination,
+      }));
     } catch (err) {
       console.error(err);
       return res.status(500).json({ error: err.message });
@@ -95,18 +105,29 @@ router.get('/', requireAuth, async (req, res) => {
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  try {
-    // Joined with the source org so admin's system-wide table can show
-    // where every unit lives; role pages ignore the extra columns.
-    const result = await pool.query(
-      `SELECT iu.*, o.name AS org_name, o.org_type, o.district AS org_district,
+  // Joined with the source org so admin's system-wide table can show
+  // where every unit lives; role pages ignore the extra columns.
+  const rowsSql = `SELECT iu.*, o.name AS org_name, o.org_type, o.district AS org_district,
               (iu.expiry_date - CURRENT_DATE)::int AS days_to_expiry
        FROM inventory_units iu
        JOIN organizations o ON o.org_id = iu.org_id
-       ${whereClause} ORDER BY iu.expiry_date`,
-      values
-    );
-    res.json(result.rows);
+       ${whereClause} ORDER BY iu.expiry_date`;
+
+  try {
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, values);
+      return res.json(result.rows);
+    }
+    // The org JOIN stays in the count. It is an inner join, so it CAN drop
+    // rows (a unit whose org row is gone), and counting without it would
+    // report a total the page query can never reach.
+    res.json(await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM inventory_units iu
+                 JOIN organizations o ON o.org_id = iu.org_id ${whereClause}`,
+      rowsSql,
+      values,
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

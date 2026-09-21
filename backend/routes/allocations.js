@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // GET /api/allocations - all allocations where the caller's org is the
 // SOURCE (i.e. "outgoing" from a bank/NGO's point of view), across every
@@ -13,6 +14,9 @@ const { requireAuth } = require('../middleware/auth');
 router.get('/', requireAuth, async (req, res) => {
   let orgId = req.user.org_id;
 
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
+
   // Admin can look at any org's outgoing allocations via ?org_id=; every
   // other role is locked to their own org regardless of what they pass.
   if (req.user.role === 'admin' && req.query.org_id) {
@@ -22,9 +26,7 @@ router.get('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'org_id is required (admin only) or you must belong to an organization' });
   }
 
-  try {
-    const result = await pool.query(
-      `SELECT ar.unit_id, ar.request_id, iu.blood_type, iu.component, iu.status,
+  const rowsSql = `SELECT ar.unit_id, ar.request_id, iu.blood_type, iu.component, iu.status,
               r.urgency_tier, r.org_id AS hospital_org_id,
               o.name AS hospital_name, o.district AS hospital_district
        FROM allocation_records ar
@@ -32,10 +34,27 @@ router.get('/', requireAuth, async (req, res) => {
        JOIN requests r ON r.request_id = ar.request_id
        JOIN organizations o ON o.org_id = r.org_id
        WHERE iu.org_id = $1
-       ORDER BY r.created_at DESC`,
-      [orgId]
-    );
-    res.json(result.rows);
+       ORDER BY r.created_at DESC`;
+
+  try {
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, [orgId]);
+      return res.json(result.rows);
+    }
+    // All four joins stay in the count. Every one is an inner join, so each
+    // can exclude rows, and dropping any would give a total larger than the
+    // page query can ever return.
+    res.json(await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM allocation_records ar
+                 JOIN inventory_units iu ON iu.unit_id = ar.unit_id
+                 JOIN requests r ON r.request_id = ar.request_id
+                 JOIN organizations o ON o.org_id = r.org_id
+                 WHERE iu.org_id = $1`,
+      rowsSql,
+      values: [orgId],
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

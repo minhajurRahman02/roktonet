@@ -10,8 +10,10 @@ import Select from '../../components/atoms/Select';
 import FilterBar from '../../components/admin/FilterBar';
 import StatusBadge from '../../components/admin/StatusBadge';
 import Modal from '../../components/admin/Modal';
-import { Table, Th, Td, TableFooter, fmtDate } from '../../components/admin/Table';
+import Pagination from '../../components/molecules/Pagination';
+import { Table, Th, Td, fmtDate } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { useAuth } from '../../context/AuthContext';
 import { listUsers, createAdmin } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
@@ -23,7 +25,11 @@ export default function AdminUsers() {
   const { user: me } = useAuth();
   const [filters, setFilters] = useState({ search: '', role: '', org_id: '', is_active: '', is_verified: '' });
   const [applied, setApplied] = useState(filters);
-  const users = useAsync(() => listUsers(applied), [applied]);
+  const users = usePaginatedAsync(
+    ({ page, per_page }) => listUsers({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.users' }
+  );
   const orgs = useAsync(() => listOrganizations(), []);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -93,7 +99,12 @@ export default function AdminUsers() {
           </tbody>
         </Table>
       )}
-      {users.status === 'success' && users.data.length > 0 && <TableFooter><span>{users.data.length} account(s)</span></TableFooter>}
+      {users.status === 'success' && users.data.length > 0 && (
+        <Pagination
+          page={users.page} pageCount={users.pageCount} total={users.total} perPage={users.perPage}
+          onPageChange={users.setPage} onPerPageChange={users.setPerPage} noun="account"
+        />
+      )}
 
       <Modal
         isOpen={createOpen}

@@ -1,52 +1,47 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
 import RequestCard from '../../components/molecules/RequestCard';
+import Pagination from '../../components/molecules/Pagination';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listRequests } from '../../api/requests';
 
 export default function MyRequests() {
-  const [status, setStatus] = useState('loading');
-  const [requests, setRequests] = useState([]);
-  const [errorMessage, setErrorMessage] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('');
   // "resolved"/"pending" is a UI-derived filter, not a real fulfillment_path
   // value -- translated into the right query param below.
   const [resolveFilter, setResolveFilter] = useState('');
 
-  const load = useCallback(() => {
-    setStatus('loading');
-    const filters = {};
-    if (urgencyFilter) filters.urgency_tier = urgencyFilter;
-    // The backend filters by an EXACT fulfillment_path value, not a
-    // pending/resolved concept -- "resolved" here just means "don't filter
-    // by a specific path, only show ones that HAVE one." Since the API
-    // doesn't support "not null" filtering, we fetch all and filter
-    // client-side for that one case.
-    listRequests(filters)
-      .then((data) => {
-        const filtered =
-          resolveFilter === 'resolved'
-            ? data.filter((r) => r.fulfillment_path)
-            : resolveFilter === 'pending'
-              ? data.filter((r) => !r.fulfillment_path)
-              : data;
-        setRequests(filtered);
-        setStatus('success');
-      })
-      .catch((err) => {
-        setErrorMessage(err.message);
-        setStatus('error');
-      });
+  // 7.7a: both filters are now sent to the server.
+  //
+  // This used to fetch everything and then do
+  //   resolveFilter === 'resolved' ? data.filter((r) => r.fulfillment_path) : ...
+  // in the browser. That was fine while the page fetched the whole list,
+  // but server-side paging turns it into a page that lies: the server
+  // returns 25 rows, the browser keeps 4 of them, and the footer claims
+  // "4 of 87" while later pages come back empty because they happened to
+  // contain none of the wanted kind.
+  //
+  // 'pending' and 'resolved' are real backend values now
+  // (fulfillment_path IS NULL / IS NOT NULL), so what is on screen and
+  // what the count claims always agree.
+  const filters = useMemo(() => {
+    const f = {};
+    if (urgencyFilter) f.urgency_tier = urgencyFilter;
+    if (resolveFilter) f.fulfillment_path = resolveFilter;
+    return f;
   }, [urgencyFilter, resolveFilter]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const requests = usePaginatedAsync(
+    ({ page, per_page }) => listRequests({ ...filters, page, per_page }),
+    [filters],
+    { storageKey: 'hospital.myRequests' }
+  );
 
   return (
     <div className="p-6">
@@ -75,9 +70,9 @@ export default function MyRequests() {
         </Select>
       </div>
 
-      {status === 'loading' && <LoadingState rows={5} />}
-      {status === 'error' && <ErrorState message={`Couldn't load requests: ${errorMessage}`} onRetry={load} />}
-      {status === 'success' && requests.length === 0 && (
+      {requests.status === 'loading' && <LoadingState rows={5} />}
+      {requests.status === 'error' && <ErrorState message={`Couldn't load requests: ${requests.error}`} onRetry={requests.reload} />}
+      {requests.isEmpty && (
         <EmptyState
           message="No requests match these filters."
           actionLabel="Clear filters"
@@ -87,12 +82,18 @@ export default function MyRequests() {
           }}
         />
       )}
-      {status === 'success' && requests.length > 0 && (
-        <div className="space-y-2">
-          {requests.map((r) => (
-            <RequestCard key={r.request_id} request={r} />
-          ))}
-        </div>
+      {requests.status === 'success' && requests.data.length > 0 && (
+        <>
+          <div className="space-y-2">
+            {requests.data.map((r) => (
+              <RequestCard key={r.request_id} request={r} />
+            ))}
+          </div>
+          <Pagination
+            page={requests.page} pageCount={requests.pageCount} total={requests.total} perPage={requests.perPage}
+            onPageChange={requests.setPage} onPerPageChange={requests.setPerPage} noun="request"
+          />
+        </>
       )}
     </div>
   );

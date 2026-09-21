@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAdminAction } = require('../services/adminAudit');
 const crypto = require('crypto');
 const { resolveThana } = require('../services/locationResolver');
+const { parsePagination, queryPage } = require('../utils/pagination');
 
 // Never selected in any query below -- invite_code should never come back
 // from a GET at all. It's typed in once, by whoever was told it offline,
@@ -19,6 +20,8 @@ const SAFE_COLUMNS = 'org_id, name, org_type, district, thana, contact_phone, co
 // ?org_type=ngo&search=name powers the donor-facing NGO browse page.
 router.get('/', requireAuth, async (req, res) => {
   const { org_type, search } = req.query;
+  const pagination = parsePagination(req.query);
+  if (pagination.error) return res.status(400).json({ error: pagination.error });
   const conditions = [];
   const values = [];
 
@@ -44,18 +47,31 @@ router.get('/', requireAuth, async (req, res) => {
     // per-org counts for the system-wide Organizations table. Every other
     // role keeps the SAFE_COLUMNS-only shape exactly as before.
     const isAdmin = req.user.role === 'admin';
-    const result = await pool.query(
-      isAdmin
+    const rowsSql = isAdmin
         ? `SELECT ${SAFE_COLUMNS.split(', ').map((c) => 'o.' + c).join(', ')}, o.invite_code,
                   (SELECT COUNT(*) FROM users u WHERE u.org_id = o.org_id)::int AS user_count,
                   (SELECT COUNT(*) FROM inventory_units iu WHERE iu.org_id = o.org_id AND iu.status = 'available')::int AS available_units,
                   (SELECT COUNT(*) FROM requests r WHERE r.org_id = o.org_id AND r.fulfillment_path IS NULL AND r.cancelled_at IS NULL)::int AS open_requests,
                   (SELECT COUNT(*) FROM donors d WHERE d.org_id = o.org_id)::int AS donor_count
            FROM organizations o ${whereClause.replace(/\b(org_type|name|district) =/g, 'o.$1 =').replace('name ILIKE', 'o.name ILIKE')} ORDER BY o.name`
-        : `SELECT ${SAFE_COLUMNS} FROM organizations ${whereClause} ORDER BY name`,
-      values
-    );
-    res.json(result.rows);
+        : `SELECT ${SAFE_COLUMNS} FROM organizations ${whereClause} ORDER BY name`;
+
+    if (!pagination.paginated) {
+      const result = await pool.query(rowsSql, values);
+      return res.json(result.rows);
+    }
+    // The count uses the UNALIASED whereClause, matching the non-admin
+    // branch. The admin branch rewrites the clause to prefix columns with
+    // "o." only because its FROM is "organizations o"; the count's FROM has
+    // no alias, so the plain clause is the correct one for both. The four
+    // correlated subqueries are per-row scalars and cannot change how many
+    // organizations match.
+    res.json(await queryPage(pool, {
+      countSql: `SELECT COUNT(*)::int AS total FROM organizations ${whereClause}`,
+      rowsSql,
+      values,
+      pagination,
+    }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

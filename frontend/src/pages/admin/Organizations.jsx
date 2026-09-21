@@ -10,8 +10,10 @@ import Select from '../../components/atoms/Select';
 import FilterBar from '../../components/admin/FilterBar';
 import StatusBadge from '../../components/admin/StatusBadge';
 import Modal from '../../components/admin/Modal';
-import { Table, Th, Td, TableFooter } from '../../components/admin/Table';
+import Pagination from '../../components/molecules/Pagination';
+import { Table, Th, Td } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
+import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listOrganizations, updateOrganization } from '../../api/organizations';
 import { createOrganization } from '../../api/admin';
 import DatalistInput from '../../components/atoms/DatalistInput';
@@ -38,8 +40,15 @@ const EMPTY = { name: '', org_type: 'hospital', district: '', thana: '', contact
 export default function AdminOrganizations() {
   const [filters, setFilters] = useState({ search: '', org_type: '', district: '' });
   const [applied, setApplied] = useState({});
-  const orgs = useAsync(() => listOrganizations(applied), [applied]);
+  const orgs = usePaginatedAsync(
+    ({ page, per_page }) => listOrganizations({ ...applied, page, per_page }),
+    [applied],
+    { storageKey: 'admin.organizations' }
+  );
   const districts = useAsync(getDistricts, []);
+  const [modal, setModal] = useState(null); // null | 'create' | org
+  const [form, setForm] = useState(EMPTY);
+
   // 7.7a: same cascading list RegisterDonor.jsx already uses. Thana names
   // are only unique within a district, so an uncascaded list would be both
   // enormous and ambiguous. Keyed off whatever district the form currently
@@ -54,8 +63,6 @@ export default function AdminOrganizations() {
       .catch(() => { if (!cancelled) setThanas([]); });
     return () => { cancelled = true; };
   }, [form.district]);
-  const [modal, setModal] = useState(null); // null | 'create' | org
-  const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [notice, setNotice] = useState('');
@@ -119,7 +126,15 @@ export default function AdminOrganizations() {
           </tbody>
         </Table>
       )}
-      {orgs.status === 'success' && orgs.data.length > 0 && <TableFooter><span>{orgs.data.length} organization(s)</span><span>Invite codes are hidden until clicked so a screen-share doesn&apos;t leak them.</span></TableFooter>}
+      {orgs.status === 'success' && orgs.data.length > 0 && (
+        <>
+          <Pagination
+            page={orgs.page} pageCount={orgs.pageCount} total={orgs.total} perPage={orgs.perPage}
+            onPageChange={orgs.setPage} onPerPageChange={orgs.setPerPage} noun="organization"
+          />
+          <p className="px-4 pb-3 text-xs text-gray-500 dark:text-textsecondary-dark">Invite codes are hidden until clicked so a screen-share doesn&apos;t leak them.</p>
+        </>
+      )}
 
       <Modal isOpen={!!modal} onClose={() => setModal(null)} title={modal === 'create' ? 'Create organization' : 'Edit organization'}
         footer={<><Button variant="ghost" onClick={() => setModal(null)}>Cancel</Button><Button type="submit" form="org-form" loading={busy}>{modal === 'create' ? 'Create' : 'Save'}</Button></>}>

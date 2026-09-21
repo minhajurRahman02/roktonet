@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import EmptyState from '../../components/molecules/EmptyState';
+import Pagination from '../../components/molecules/Pagination';
 import Button from '../../components/atoms/Button';
+import { useClientPagination } from '../../hooks/usePaginatedAsync';
 import { listOutgoingAllocations } from '../../api/allocations';
 import { dispatchUnit } from '../../api/inventory';
 
@@ -34,6 +36,22 @@ export default function OutgoingAllocations() {
   const [dispatchingRequestId, setDispatchingRequestId] = useState(null);
   const [dispatchError, setDispatchError] = useState('');
 
+  // 7.7a: this page keeps its own loader and pages CLIENT-SIDE, unlike
+  // every other list in the project. That is deliberate, and it is about
+  // correctness rather than convenience.
+  //
+  // The endpoint returns allocation ROWS; this page renders request
+  // GROUPS. Server-side paging would cut the row list at an arbitrary
+  // point, which lands mid-group: you would see a request showing 2 of its
+  // 3 units, and the Dispatch button -- which acts on group.units -- would
+  // dispatch only the two that happened to fall on the visible page. A
+  // button that silently does part of what it says is worse than a long
+  // list.
+  //
+  // Paging the groups properly on the server means grouping in SQL and
+  // changing the endpoint's shape, which is not worth it for a list
+  // bounded by one bank's own allocations. So: fetch everything as before,
+  // group, then page the groups.
   const load = useCallback(() => {
     setStatus('loading');
     listOutgoingAllocations()
@@ -66,6 +84,9 @@ export default function OutgoingAllocations() {
     }
   }
 
+  const groups = useMemo(() => groupByRequest(allocations), [allocations]);
+  const paged = useClientPagination(groups, { storageKey: 'bank.outgoingAllocations', defaultPerPage: 10 });
+
   if (status === 'loading') {
     return (
       <div className="p-6">
@@ -82,8 +103,6 @@ export default function OutgoingAllocations() {
     );
   }
 
-  const groups = groupByRequest(allocations);
-
   return (
     <div className="p-6">
       <PageHeader title="Outgoing Allocations" subtitle="Units from your inventory that have been matched to a hospital's request." />
@@ -95,51 +114,57 @@ export default function OutgoingAllocations() {
       {groups.length === 0 ? (
         <EmptyState message="No units of yours have been allocated to a request yet." />
       ) : (
-        <div className="space-y-3">
-          {groups.map((group) => {
-            const allDelivered = group.units.every((u) => u.status === 'delivered');
-            const anyDispatched = group.units.some((u) => u.status === 'dispatched');
-            const anyReserved = group.units.some((u) => u.status === 'reserved');
-            const summary = group.units
-              .map((u) => `${u.blood_type} ${u.component.replace('_', ' ')}`)
-              .join(', ');
+        <>
+          <div className="space-y-3">
+            {paged.pageItems.map((group) => {
+              const allDelivered = group.units.every((u) => u.status === 'delivered');
+              const anyDispatched = group.units.some((u) => u.status === 'dispatched');
+              const anyReserved = group.units.some((u) => u.status === 'reserved');
+              const summary = group.units
+                .map((u) => `${u.blood_type} ${u.component.replace('_', ' ')}`)
+                .join(', ');
 
-            return (
-              <div
-                key={group.request_id}
-                className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium dark:text-textprimary-dark">
-                    {group.hospital_name}, {group.hospital_district}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {summary}, {group.units.length} unit{group.units.length === 1 ? '' : 's'} · req_{group.request_id.slice(0, 8)}
-                  </p>
+              return (
+                <div
+                  key={group.request_id}
+                  className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium dark:text-textprimary-dark">
+                      {group.hospital_name}, {group.hospital_district}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {summary}, {group.units.length} unit{group.units.length === 1 ? '' : 's'} · req_{group.request_id.slice(0, 8)}
+                    </p>
+                  </div>
+
+                  {allDelivered ? (
+                    <span className="text-xs font-medium text-elective-text bg-elective-bg dark:text-elective-dtext dark:bg-elective-dbg px-2.5 py-1 rounded-full self-start sm:self-auto shrink-0">
+                      Delivered
+                    </span>
+                  ) : anyDispatched && !anyReserved ? (
+                    <span className="text-xs font-medium text-urgent-text bg-urgent-bg dark:text-urgent-dtext dark:bg-urgent-dbg px-2.5 py-1 rounded-full self-start sm:self-auto shrink-0">
+                      On its way
+                    </span>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      loading={dispatchingRequestId === group.request_id}
+                      onClick={() => handleDispatch(group)}
+                      className="self-start sm:self-auto shrink-0"
+                    >
+                      Dispatch
+                    </Button>
+                  )}
                 </div>
-
-                {allDelivered ? (
-                  <span className="text-xs font-medium text-elective-text bg-elective-bg dark:text-elective-dtext dark:bg-elective-dbg px-2.5 py-1 rounded-full self-start sm:self-auto shrink-0">
-                    Delivered
-                  </span>
-                ) : anyDispatched && !anyReserved ? (
-                  <span className="text-xs font-medium text-urgent-text bg-urgent-bg dark:text-urgent-dtext dark:bg-urgent-dbg px-2.5 py-1 rounded-full self-start sm:self-auto shrink-0">
-                    On its way
-                  </span>
-                ) : (
-                  <Button
-                    variant="primary"
-                    loading={dispatchingRequestId === group.request_id}
-                    onClick={() => handleDispatch(group)}
-                    className="self-start sm:self-auto shrink-0"
-                  >
-                    Dispatch
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          <Pagination
+            page={paged.page} pageCount={paged.pageCount} total={paged.total} perPage={paged.perPage}
+            onPageChange={paged.setPage} onPerPageChange={paged.setPerPage} noun="allocation"
+          />
+        </>
       )}
     </div>
   );

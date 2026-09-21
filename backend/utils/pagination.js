@@ -1,10 +1,10 @@
 // Shared pagination for every list endpoint.
 //
-// DESIGN DECISION: pagination is OPT-IN, and the response shape changes
+// DESIGN DECISION 1: pagination is OPT-IN, and the response shape changes
 // only when the caller asks for it.
 //
-//   GET /api/donors              -> [ {...}, {...} ]            (unchanged)
-//   GET /api/donors?limit=25     -> { data: [...], page: {...} }
+//   GET /api/donors                 -> [ {...}, {...} ]            (unchanged)
+//   GET /api/donors?per_page=25     -> { data: [...], page: {...} }
 //
 // The reason is blast radius. Five role dashboards (hospital, bank, ngo,
 // donor, plus the shared profile pages) already consume these endpoints
@@ -17,44 +17,55 @@
 // lists to populate <select> options, and those want everything, not page
 // one of everything.
 //
-// So: admin tables pass ?limit= and get an envelope with a real total;
-// everything else carries on exactly as before.
+// DESIGN DECISION 2: the trigger is `per_page`/`page`, NOT `limit`.
+//
+// This matters, and it is not cosmetic. `limit` is ALREADY in use on two
+// admin endpoints with a completely different meaning -- a hard cap on
+// how many rows come back, not a page size:
+//
+//   GET /api/admin/audit?limit=300            (AuditLog.jsx sends this)
+//   GET /api/admin/analytics/activity-feed?limit=30
+//
+// Had pagination triggered on `limit`, the audit page would have started
+// receiving an envelope the instant this shipped, from a request it was
+// already making, and broken with no code change on its side. Using a new
+// parameter name leaves every existing meaning of `limit` untouched.
 //
 // The `total` is a second COUNT query against the same WHERE clause. At
-// this project's data volumes that is cheaper and far simpler than
-// window-function tricks, and unlike COUNT(*) OVER () it stays correct
-// when the main query has a LIMIT.
+// this project's data volumes that is cheaper and far simpler than window
+// -function tricks, and unlike COUNT(*) OVER () it stays correct when the
+// main query has a LIMIT.
 
-const DEFAULT_LIMIT = 25;
-const MAX_LIMIT = 200;
+const DEFAULT_PER_PAGE = 25;
+const MAX_PER_PAGE = 200;
 
-// Offered in the rows-per-page selector. 'all' is deliberately absent:
-// an admin on a slow connection selecting "all" against a table that has
+// Offered in the rows-per-page selector. 'all' is deliberately absent: an
+// admin on a slow connection selecting "all" against a table that has
 // grown is exactly how a page becomes unusable with no warning.
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 /**
- * Reads ?limit= and ?offset= (or ?page=, 1-based) off a request.
+ * Reads ?per_page= and ?page= (1-based) or ?offset= off a request.
  *
  * @returns {{ paginated: boolean, limit: number, offset: number, error: string|null }}
  *   paginated is false when the caller did not ask for pagination, in
  *   which case limit/offset should be ignored and a plain array returned.
  */
 function parsePagination(query) {
-  const out = { paginated: false, limit: DEFAULT_LIMIT, offset: 0, error: null };
+  const out = { paginated: false, limit: DEFAULT_PER_PAGE, offset: 0, error: null };
 
-  if (query.limit === undefined && query.page === undefined) return out;
+  if (query.per_page === undefined && query.page === undefined) return out;
   out.paginated = true;
 
-  if (query.limit !== undefined) {
-    const limit = Number(query.limit);
-    if (!Number.isInteger(limit) || limit < 1) {
-      return { ...out, error: 'limit must be a positive integer' };
+  if (query.per_page !== undefined) {
+    const perPage = Number(query.per_page);
+    if (!Number.isInteger(perPage) || perPage < 1) {
+      return { ...out, error: 'per_page must be a positive integer' };
     }
     // Clamped rather than rejected: a client asking for 10000 rows gets
     // the largest page we are willing to serve, not an error it has to
     // handle. The envelope's `limit` tells it what it actually got.
-    out.limit = Math.min(limit, MAX_LIMIT);
+    out.limit = Math.min(perPage, MAX_PER_PAGE);
   }
 
   if (query.offset !== undefined) {
@@ -75,7 +86,7 @@ function parsePagination(query) {
 }
 
 /**
- * Appends LIMIT/OFFSET to a query using the next two bind parameters.
+ * Appends LIMIT/OFFSET using the next two bind parameters.
  * Mutates `values`, returns the SQL fragment.
  *
  *   const sql = `SELECT ... ${where} ORDER BY x ${limitClause(p, values)}`;
@@ -95,7 +106,7 @@ function paginated(rows, total, pagination) {
     data: rows,
     page: {
       total: totalNum,
-      limit: pagination.limit,
+      per_page: pagination.limit,
       offset: pagination.offset,
       page_count: Math.max(1, Math.ceil(totalNum / pagination.limit)),
       current_page: Math.floor(pagination.offset / pagination.limit) + 1,
@@ -105,7 +116,7 @@ function paginated(rows, total, pagination) {
 }
 
 /**
- * Runs the count and the page in one go. `countSql` and `rowsSql` must
+ * Runs the count and the page together. `countSql` and `rowsSql` must
  * share the same WHERE clause and the same leading bind values.
  *
  * Kept as a helper because getting this wrong in one route out of eleven
@@ -125,7 +136,7 @@ module.exports = {
   limitClause,
   paginated,
   queryPage,
-  DEFAULT_LIMIT,
-  MAX_LIMIT,
+  DEFAULT_PER_PAGE,
+  MAX_PER_PAGE,
   PAGE_SIZE_OPTIONS,
 };
