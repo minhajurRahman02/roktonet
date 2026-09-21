@@ -57,3 +57,31 @@ export async function downloadReport(dataset, { format, from, to }) {
   URL.revokeObjectURL(url);
   return filename;
 }
+
+/**
+ * Records a client-side chart export in the audit trail (bug 9).
+ *
+ * Best effort by design. The file is already in the user's hands by the
+ * time this runs, so a logging outage must never surface as a failed
+ * export -- it resolves either way and only warns to the console.
+ *
+ * @param {{charts: number, format: 'png'|'jpeg'|'webp'|'pdf', from?: string, to?: string}} info
+ */
+export async function logChartExport({ charts, format, from, to }) {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const qs = params.toString();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/reports/chart-export${qs ? `?${qs}` : ''}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ charts, format }),
+    });
+    if (!res.ok) console.warn('[reports] chart export not logged:', res.status);
+  } catch (err) {
+    console.warn('[reports] chart export not logged:', err.message);
+  }
+}

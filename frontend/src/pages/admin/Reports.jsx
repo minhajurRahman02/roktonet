@@ -16,6 +16,22 @@ import { relativeTime } from '../../utils/relativeTime';
 
 const FORMATS = [['csv', 'CSV'], ['xlsx', 'XLSX'], ['pdf', 'PDF']];
 
+// 7.7b (bug 9): chart exports are logged under the same action_type as
+// server-generated reports, with details.report = 'analytics_charts'.
+// Without these two helpers the table would print that raw key and leave
+// the Rows cell blank, which reads like a broken row rather than a
+// different kind of export.
+function reportLabel(details) {
+  if (details?.report !== 'analytics_charts') return details?.report;
+  const n = details?.charts;
+  return `Analytics charts${n ? ` (${n})` : ''}`;
+}
+
+// null rows means "rows do not apply here", which is not the same as zero.
+function rowsLabel(details) {
+  return details?.rows === null || details?.rows === undefined ? '—' : details.rows;
+}
+
 function FormatPicker({ value, onChange, csvLabel = 'CSV' }) {
   return (
     <div className="flex gap-1">
@@ -115,10 +131,10 @@ export default function AdminReports() {
                 {recent.data.map((a) => (
                   <tr key={a.action_id}>
                     <Td muted>{relativeTime(a.created_at)}</Td>
-                    <Td>{a.details?.report}</Td>
+                    <Td>{reportLabel(a.details)}</Td>
                     <Td><span className="text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-textsecondary-dark">{a.details?.format}</span></Td>
                     <Td muted>{a.details?.from ? a.details.from.slice(0, 10) : 'all time'} → {a.details?.to ? a.details.to.slice(0, 10) : 'now'}</Td>
-                    <Td>{a.details?.rows}</Td>
+                    <Td>{rowsLabel(a.details)}</Td>
                     <Td>{a.admin_name || a.admin_email}</Td>
                   </tr>
                 ))}

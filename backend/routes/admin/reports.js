@@ -395,4 +395,65 @@ router.get('/:dataset', async (req, res) => {
   catch (err) { console.error(err); if (!res.headersSent) res.status(500).json({ error: err.message }); }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/admin/reports/chart-export -- audit trail for client-side exports
+//
+// The Analytics page renders its chart images in the browser (the canvases
+// are already drawn there; re-drawing them in Node would mean duplicating
+// the whole Chart.js config for nothing). But "an admin pulled a file out
+// of this system" still belongs in the audit trail, and the Recent
+// downloads table on the Reports page would otherwise under-report what
+// has actually left.
+//
+// Two honest limitations, recorded here rather than papered over:
+//   - This is CLIENT-ASSERTED. It records what the browser says it did.
+//     A server-generated report proves itself; this does not. It is a
+//     behaviour trail, not evidence.
+//   - Because of that, every field is validated and clamped below rather
+//     than trusted, so a crafted request cannot write arbitrary values
+//     into admin_actions.
+//
+// It reuses action_type 'report_generated' so the existing Recent
+// downloads query picks it up with no change; details.report is
+// 'analytics_charts', which is what tells the two apart.
+// ---------------------------------------------------------------------------
+const CHART_EXPORT_FORMATS = ['png', 'jpeg', 'webp', 'pdf'];
+const MAX_CHARTS_PER_EXPORT = 50;
+
+router.post('/chart-export', async (req, res) => {
+  const { format, charts } = req.body || {};
+
+  if (!CHART_EXPORT_FORMATS.includes(format)) {
+    return res.status(400).json({ error: `format must be one of: ${CHART_EXPORT_FORMATS.join(', ')}` });
+  }
+
+  const count = Number(charts);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_CHARTS_PER_EXPORT) {
+    return res.status(400).json({ error: `charts must be a whole number between 1 and ${MAX_CHARTS_PER_EXPORT}` });
+  }
+
+  const range = parseDateRange(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
+
+  await logAdminAction(req.user.user_id, 'report_generated', {
+    targetType: 'report',
+    details: {
+      report: 'analytics_charts',
+      format,
+      charts: count,
+      // `rows` is null rather than 0 on purpose: the Recent downloads table
+      // can then tell "not applicable to this kind of export" apart from
+      // "a report that genuinely had no rows".
+      rows: null,
+      from: range.from ? range.from.toISOString() : null,
+      to: range.to ? range.to.toISOString() : null,
+    },
+  });
+
+  // logAdminAction never throws by design (see services/adminAudit.js), so
+  // reaching here means the request was well-formed, not that the row
+  // definitely landed. The client treats this as best-effort either way.
+  res.status(204).end();
+});
+
 module.exports = router;

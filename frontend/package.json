@@ -12,6 +12,8 @@
   "dependencies": {
     "chart.js": "^4.5.1",
     "framer-motion": "^13.1.0",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.31.0",
     "prop-types": "^15.8.1",
     "react": "^19.2.8",
