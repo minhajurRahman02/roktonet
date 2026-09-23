@@ -141,3 +141,44 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ---------------------------------------------------------------------------
+# Python
+#
+# Added 2026-09-23. Everything above this line is the stock GitHub Node
+# template, which has NO Python coverage at all — and this repo has run a
+# Python service since Phase 5.
+#
+# Verified before adding: without these rules, `git add .` stages
+#   Optimization Engine/__pycache__/engine.cpython-311.pyc
+#   forecast-service/__pycache__/forecast.cpython-311.pyc
+# Compiled bytecode is machine- and version-specific, so committing it creates
+# noisy diffs on every run and can shadow a real source change.
+#
+# Placed at the ROOT rather than in each service folder deliberately: a
+# per-folder file would have protected forecast-service/ while leaving
+# "Optimization Engine/" exposed, which is where the problem has actually been
+# since Phase 5.
+#
+# dataset/ has its own .gitignore with its own Python block; these rules are
+# harmless there and the two simply agree.
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Python virtualenvs
+.venv/
+venv/
+ENV/
+
+# NOTE — deliberately NOT ignored anywhere in this repo:
+#   forecast-service/forecast_model.json   the deployed calibration artefact;
+#     Render serves that folder as its root and cannot read dataset/models/,
+#     so ignoring it would deploy a service that throws on first request.
+#   dataset/models/*.joblib                the record those were exported from.

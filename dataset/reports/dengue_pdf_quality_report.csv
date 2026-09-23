@@ -1,0 +1,11 @@
+date,issue,detail,rows_affected
+2024-16-06,impossible_date_string,month/day transposed in source PDF; rows dropped,65
+2022-04-27,duplicate_date,two source PDFs carried this report date; first kept,65
+2022-11-18,duplicate_date,two source PDFs carried this report date; first kept,65
+2024-07-14,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-03-17,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-06-14,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-07-24,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-07-30,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-09-10,duplicate_date,two source PDFs carried this report date; first kept,65
+2025-11-03,duplicate_date,two source PDFs carried this report date; first kept,65

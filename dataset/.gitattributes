@@ -1,0 +1,24 @@
+# dataset/.gitattributes
+#
+# WHY THIS FILE EXISTS: byte-exact provenance on Windows.
+#
+# Git on Windows normally has core.autocrlf=true, which rewrites LF to CRLF in
+# the working tree and back on commit for anything it decides is "text". The
+# acquisition manifests in this folder record a sha256 of the ORIGINAL DOWNLOADED
+# BYTES:
+#
+#   raw/dengue/_manifest.csv    sha256 per PDF, 1,639 rows
+#   raw/weather/_manifest.csv   sha256 per NASA POWER JSON response, 64 rows
+#
+# The weather files are JSON, which git treats as text. Without this file, a
+# fresh clone on another machine would receive different bytes than were
+# downloaded, every recorded sha256 would fail to verify, and the provenance
+# claim in SOURCES.md rule 2 would quietly become false — with nothing failing
+# loudly to say so.
+#
+# Marking raw/ as -text disables all end-of-line conversion there, so the bytes
+# on disk after a clone are the bytes that were fetched.
+raw/** -text
+
+# Generated outputs are regenerable from the scripts, so normalisation is
+# harmless for them and left at git's default.

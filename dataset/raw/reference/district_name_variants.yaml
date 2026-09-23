@@ -1,0 +1,122 @@
+# District name variants found in DGHS daily dengue PDFs, 2021-12 .. 2026-07.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The PDFs embed several different font subsets across their five layout eras,
+# and the same Bangla district name extracts as a different character sequence
+# depending on which subset a given file used. Faridpur, for example, appears
+# as ফরিদপুি, ফরিদপযি and ফতরদপুর in different years. 166 distinct strings were
+# recovered across 1,635 files, all of them variants of the same 65 entities
+# (64 districts + the combined Dhaka Metro figure).
+#
+# This is NOT a spelling-correction or fuzzy-matching table. Every variant below
+# was assigned by two independent pieces of evidence:
+#
+#   1. POSITION. The district table lists districts in a fixed order, and every
+#      file yields exactly 65 rows, so row position identifies the district
+#      without reading the glyphs at all. 57 of the 65 positions are stable
+#      across all eras and all files.
+#
+#   2. STRING IDENTITY, for the Chattogram block. Positions 20-27 are NOT
+#      order-stable: DGHS reordered Rangamati / Khagrachhari / Bandarban and
+#      Noakhali / Cumilla / Chandpur / Lakshmipur between eras (visible in the
+#      2024 sample, where the serial numbers themselves run out of sequence:
+#      24, 35, 25, 28, 26, 27, 29, 33, 30 ...). Those were mapped by reading the
+#      strings, with position used only as a cross-check.
+#
+# Purely automatic character-folding was tried first and REJECTED: it collapsed
+# মাগুরা (Magura) and বগুড়া (Bogura) into one cluster. Two genuinely different
+# districts merging silently is exactly the failure this dataset cannot afford,
+# so the mapping is explicit and auditable rather than inferred at runtime.
+#
+# VERIFICATION
+# ------------
+# The mapping is self-checking: if any two variants of DIFFERENT districts were
+# assigned the same canonical name, at least one date would resolve to fewer
+# than 65 distinct districts and a duplicate (date, district) pair would appear.
+# build_dengue_pdf_district.py asserts exactly this and refuses to write output
+# if it fails.
+#
+# Canonical names match raw/reference/districts.csv exactly.
+
+dhaka_metro:
+  canonical: "Dhaka Metro"
+  note: >
+    DNCC and DSCC combined. DGHS never separates them; this is reported as its
+    own row ahead of the ordinary district rows and is NOT one of the 64
+    districts. Carried through as a separate unit rather than being folded into
+    Dhaka district, which it would otherwise double-count.
+  variants: ["ঢাকা হানগি", "ঢাকা মহানগর", "ঢাকা মোনগে", "ঢাকা হানগর"]
+
+districts:
+  Dhaka: ["ঢাকা"]
+  Faridpur: ["ফরিদপুি", "ফরিদপযি", "ফতরদপুর"]
+  Gazipur: ["গাজীপুি", "গািীপুি", "গাজীপযি", "গাজীপুর"]
+  Gopalganj: ["বগাপালগঞ্জ"]
+  Kishoreganj: ["রকম ািগঞ্জ", "রকমশািগঞ্জ", "রকমোিগঞ্জ", "তকম ারগঞ্জ"]
+  Madaripur: ["াদািীপুি", "াদািীপযি", "াদারীপুর"]
+  Manikganj: ["ারনকগঞ্জ", "াতনকগঞ্জ"]
+  Munshiganj: ["মুরিরগঞ্জ", "মুরিগঞ্জ", "যরিগঞ্জ", "যরিরগঞ্জ", "মুতিতগঞ্জ", "জুিরগঞ্জ"]
+  Narayanganj: ["নািায়ণগঞ্জ", "নারায়ণগঞ্জ"]
+  Narsingdi: ["নিরসিংদী", "নরতসিংদী"]
+  Rajbari: ["িাজোড়ী", "িািোড়ী", "রাজোড়ী"]
+  Shariatpur: ["িীয়তপুি", "েিীয়তপুি", "শিীয়তপুি", "শিীয়তপযি", "রীয়িপুর", "িীয়তপযি"]
+  Tangail: ["টাঙ্গাইল"]
+
+  Mymensingh: ["য় নরসিংহ", "য় নতসিংহ"]
+  Jamalpur: ["জা ালপুি", "িা ালপুি", "জা ালপযি", "জা ালপুর"]
+  Sherpur: ["ব িপুি", "বেিপুি", "বশিপুি", "বশিপযি", "ব রপুর", "ব িপযি"]
+  Netrokona: ["বনত্রমকানা"]
+
+  Chattogram: ["চট্টগ্রা"]
+  "Cox's Bazar": ["কক্সোজাি", "কক্সোিাি", "কক্সোজার"]
+  Rangamati: ["িাঙ্গা াটি", "রাঙ্গা াটি", "িাঙ্গা াটট"]
+  Khagrachhari: ["খাগড়াছরড়", "খাগড়াছতড়"]
+  Bandarban: ["োন্দিোন", "োন্দরোন"]
+  Feni: ["বফনী"]
+  Cumilla: ["কুর ল্লা", "কুত ল্লা"]
+  Chandpur: ["চাঁদপুি", "চাঁদপুর", "চাাঁদপযি", "চাদাঁ পুি"]
+  Lakshmipur: ["লক্ষীপুি", "লক্ষীপুর", "লক্ষীপযি"]
+  Noakhali: ["বনায়াখালী"]
+  Brahmanbaria: ["ব্রাহ্মনোরড়য়া", "ব্রাহ্মনোতড়য়া"]
+
+  Khulna: ["খুলনা", "খযলনা", "খলু না"]
+  Bagerhat: ["োমগিহাট", "োমগরহাট"]
+  Satkhira: ["সাতক্ষীিা", "সািক্ষীরা"]
+  Jashore: ["যম াি", "যমশাি", "যমোি", "যম ার"]
+  Jhenaidah: ["রিনাইদহ", "তিনাইদহ", "জিনাইদহ"]
+  Magura: ["াগুিা", "াগুরা"]
+  Narail: ["নড়াইল"]
+  Kushtia: ["কুরিয়া", "কুতিয়া", "কুটিয়া"]
+  Chuadanga: ["চুয়ািাঙ্গা", "চযয়ািাঙ্গা"]
+  Meherpur: ["ব মহিপুি", "ব মহিপযি", "ব মহরপুর"]
+
+  Rajshahi: ["িাজ াহী", "িাজশাহী", "িািোহী", "রাজ াহী"]
+  Chapai Nawabganj: ["চাপাইনোেগঞ্জ"]
+  Naogaon: ["নওগাঁ", "নওগাাঁ"]
+  Natore: ["নামটাি", "নামটার"]
+  Joypurhat: ["জয়পুিহাট", "িয়পুিহাট", "জয়পযিহাট", "জয়পুরহাট"]
+  Bogura: ["েগুড়া"]
+  Sirajganj: ["রসিাজগঞ্জ", "রসিািগঞ্জ", "তসরাজগঞ্জ"]
+  Pabna: ["পােনা"]
+
+  Rangpur: ["িিংপুি", "িিংপযি", "রিংপুর"]
+  Lalmonirhat: ["লাল রনিহাট", "লাল তনরহাট"]
+  Kurigram: ["কুরড়গ্রা", "কুতড়গ্রা"]
+  Nilphamari: ["নীলফা ািী", "নীলফা ারী"]
+  Dinajpur: ["রদনাজপুি", "রদনািপুি", "রদনাজপযি", "তদনাজপুর"]
+  Gaibandha: ["গাইোন্ধা"]
+  Thakurgaon: ["ঠাকুিগাঁও", "ঠাকুিগাাঁও", "ঠাকুরগাঁও", "ঠাকুিগাওাঁ"]
+  Panchagarh: ["পঞ্চগড়"]
+
+  Barishal: ["েরি াল", "েরিশাল", "েরিোল", "েতর াল"]
+  Patuakhali: ["পটুয়াখালী", "পটযয়াখালী"]
+  Bhola: ["বভালা"]
+  Pirojpur: ["রপমিাজপুি", "রপমিািপুি", "রপমিাজপযি", "তপমরাজপুর"]
+  Barguna: ["েিগুনা", "েরগুনা"]
+  Jhalokati: ["িালকাঠি", "িালকাটঠ"]
+
+  Sylhet: ["রসমলট", "তসমলট"]
+  Sunamganj: ["সুনা গঞ্জ", "সযনা গঞ্জ", "সনু া গঞ্জ"]
+  Habiganj: ["হরেগঞ্জ", "হতেগঞ্জ"]
+  Moulvibazar: ["ব ৌলভীোজাি", "ব ৌলভীোিাি", "ব ৌলভীোজার"]

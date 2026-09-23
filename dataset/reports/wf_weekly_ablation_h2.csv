@@ -1,0 +1,6 @@
+feature_set,n_features,best_model,mae,naive_mae,vs_naive_pct,folds_won,beats_naive
+parsimonious,8,ridge,21.444,19.726,-8.7,5/10,no
+endogenous,22,ridge,26.853,19.726,-36.1,4/10,no
+endo_rain,35,ridge,27.566,19.726,-39.7,3/10,no
+all,45,ridge,27.853,19.726,-41.2,3/10,no
+weather_only,27,ridge,68.909,19.726,-249.3,0/10,no

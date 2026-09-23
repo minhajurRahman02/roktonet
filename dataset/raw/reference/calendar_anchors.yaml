@@ -1,0 +1,134 @@
+# Calendar anchors for RoktoNet blood demand dataset (Stage 6A / A8)
+#
+# PROVENANCE RULE: Eid dates in Bangladesh are moon-sighting dependent and are
+# declared locally by the National Moon Sighting Committee. They are NOT computed
+# astronomically here. Every date below is the OBSERVED Bangladesh date, taken from
+# a published holiday record and cross-checked against a second source.
+#
+# Verified 2026-09-21.
+
+sources:
+  calendarific:
+    url: https://calendarific.com/holiday/bangladesh/eid-ul-fitr
+    url_adha: https://calendarific.com/holiday/bangladesh/eid-ul-adha
+    covers: 2019-2025
+    note: "Publisher states dates may be modified as official changes are announced."
+  timeanddate:
+    url: https://www.timeanddate.com/holidays/bangladesh/eid-ul-fitr
+    url_adha: https://www.timeanddate.com/holidays/bangladesh/eid-ul-adha
+    covers: 2025-2026
+    note: "2026 entries are flagged 'Tentative Date' by the publisher."
+  rsf_eid_windows:
+    description: >
+      Road Safety Foundation and Bangladesh Passenger Welfare Association Eid-period
+      casualty reports. Used here only as an INDEPENDENT CROSS-CHECK on the 2026 Eid
+      dates, because the reports state their own travel windows explicitly.
+    checks:
+      - "Eid-ul-Fitr 2026: RSF reported the 10-day travel period as 16-26 March 2026,
+         which centres on 21 March 2026. Consistent."
+      - "Eid-ul-Adha 2026: RSF reported the 13-day window as 21 May - 2 June 2026,
+         which centres on 27-28 May 2026. Consistent."
+
+# ---------------------------------------------------------------------------
+# Eid ul-Fitr (1 Shawwal), Bangladesh observed date
+# ---------------------------------------------------------------------------
+eid_ul_fitr:
+  2019: 2019-06-05   # Wednesday
+  2020: 2020-05-25   # Monday
+  2021: 2021-05-14   # Friday
+  2022: 2022-05-03   # Tuesday
+  2023: 2023-04-22   # Saturday
+  2024: 2024-04-10   # Wednesday
+  2025: 2025-03-31   # Monday
+  2026: 2026-03-21   # Saturday  [tentative at publisher; RSF window corroborates]
+
+# ---------------------------------------------------------------------------
+# Eid ul-Adha (10 Dhul Hijjah), Bangladesh observed date
+# ---------------------------------------------------------------------------
+eid_ul_adha:
+  2019: 2019-08-12   # Monday
+  2020: 2020-08-01   # Saturday
+  2021: 2021-07-21   # Wednesday
+  2022: 2022-07-10   # Sunday
+  2023: 2023-06-29   # Thursday
+  2024: 2024-06-17   # Monday
+  2025: 2025-06-07   # Saturday
+  2026: 2026-05-28   # Thursday  [tentative at publisher; RSF window corroborates]
+
+# ---------------------------------------------------------------------------
+# Ramadan — DERIVED, not observed
+# ---------------------------------------------------------------------------
+# Ramadan ends the day before Eid ul-Fitr. Its length is 29 or 30 days and is
+# itself moon-sighting dependent, so the start date carries +/- 1 day uncertainty.
+# We derive it rather than assert it. This is flagged in DATASET.md as a known
+# approximation. It matters for the SUPPLY side (donation collapses during Ramadan),
+# not the demand side, so +/- 1 day is tolerable.
+ramadan:
+  derivation: "start = eid_ul_fitr - 30 days; end = eid_ul_fitr - 1 day"
+  assumed_length_days: 30
+  uncertainty_days: 1
+  evidence_of_supply_effect: >
+    Sandhani reported 4,735 bags collected in January, 5,640 in February, and only
+    2,630 in the first 15 days of March, stating collection falls sharply after the
+    15th day of Ramadan. Source: bdnews24, 2025-03-23.
+
+# ---------------------------------------------------------------------------
+# Eid travel windows
+# ---------------------------------------------------------------------------
+# These are the windows the RSF/BPWA casualty reports themselves use, so the feature
+# matches the evidence rather than being invented. Asymmetric: travel out begins
+# several days before, return traffic continues after.
+eid_travel_window:
+  days_before: 5
+  days_after: 5
+  basis: >
+    RSF reports use 10-13 day windows around Eid (e.g. 16-26 March 2026 for Eid-ul-Fitr,
+    21 May - 2 June 2026 for Eid-ul-Adha). A symmetric +/-5 day window approximates the
+    shorter of these. The signed days_to_eid feature lets the model learn the true
+    asymmetry rather than relying on this boolean alone.
+
+# ---------------------------------------------------------------------------
+# Fixed-date national holidays
+# ---------------------------------------------------------------------------
+fixed_holidays:
+  "02-21": Shaheed Day / International Mother Language Day
+  "03-26": Independence Day
+  "04-14": Pohela Boishakh (Bengali New Year)
+  "05-01": May Day
+  "12-16": Victory Day
+  "12-25": Christmas Day
+
+# Politically variable — MUST be verified by the team before the dataset is frozen.
+# Bangladesh's national holiday list was revised after August 2024 and several
+# previously-gazetted national holidays were removed. We do NOT assert their status
+# here. Leaving them out entirely would also be wrong, so they are listed as unresolved.
+fixed_holidays_needs_verification:
+  "03-17":
+    name: Sheikh Mujibur Rahman's birthday
+    status: UNVERIFIED — gazetted status changed after 2024; confirm per year
+  "08-15":
+    name: National Mourning Day
+    status: UNVERIFIED — gazetted status changed after 2024; confirm per year
+
+# ---------------------------------------------------------------------------
+# Known gaps in v1
+# ---------------------------------------------------------------------------
+known_gaps:
+  - "Movable non-Eid religious holidays are NOT included in v1: Eid-e-Miladunnabi,
+     Shab-e-Barat, Shab-e-Qadr, Ashura, Durga Puja, Buddha Purnima, Janmashtami.
+     Durga Puja in particular is a multi-day closure with real regional effect.
+     Adding them requires a per-year gazette lookup; deferred to v1.1."
+  - "Weekend definition: Bangladesh's weekend is Friday-Saturday, not Saturday-Sunday.
+     Encoded in build_calendar.py. Do not use a Western default."
+
+# ---------------------------------------------------------------------------
+# Winter fog season
+# ---------------------------------------------------------------------------
+# Dense winter fog on highways is a documented contributor to road crash volume.
+# Encoded as a coarse seasonal flag, not a weather measurement. If NASA POWER
+# weather covariates are added in v1.1, this flag should be replaced by real
+# visibility/temperature data rather than kept alongside it.
+winter_fog_season:
+  start_month_day: "12-15"
+  end_month_day: "02-15"
+  status: coarse proxy, not a measurement

@@ -1,0 +1,333 @@
+# Clinical conversion rates — RoktoNet blood demand dataset (Stage 6A / A10)
+#
+# This is the most scrutinised file in the dataset. It is where observed clinical
+# incidence becomes estimated blood units, and therefore where the dataset stops
+# being observation and starts being inference.
+#
+# RULES ENFORCED HERE:
+#   1. Every value carries low / central / high, never a bare point estimate.
+#   2. Every value carries a citation. No uncited numbers.
+#   3. Where the literature is not Bangladeshi, that is stated in the entry.
+#   4. The low/high bounds are propagated all the way to demand_lower_bound and
+#      demand_upper_bound in the final dataset, and drive the sensitivity analysis.
+#
+# Compiled 2026-09-21.
+
+meta:
+  version: "1.0"
+  status: >
+    v1 SCOPE LOCKED 2026-09-23. Two streams ship: DENGUE (observed daily, district
+    grain) and CHRONIC (resident patient population). Trauma is deferred to v1.1.
+    The RESIDUAL stream and the reconcile-to-national-anchor method are REMOVED —
+    see reconciliation_finding below. They were not descoped for convenience; the
+    method was found to be arithmetically impossible against published figures.
+
+reconciliation_finding:
+  summary: >
+    The original design solved a residual stream as
+    (national_total - sum of the other streams). That cannot work: two streams
+    alone already exceed the published national total.
+  evidence:
+    chronic_central_annual_bags: 548730      # 56.3% of the 975,000 anchor
+    dengue_2023_central_annual_bags: 282638  # 29.0% of the anchor
+    combined_share_of_anchor: 0.853
+    at_high_bounds_share_of_anchor: 1.53     # residual would go NEGATIVE
+  what_this_leaves: >
+    At central values the two streams consume 85% of the anchor, leaving ~144,000
+    bags for ALL surgery, obstetrics, oncology, trauma, anaemia and GI bleeding
+    nationally. Obstetric haemorrhage alone, in a country with roughly 3 million
+    annual births, would exceed that.
+  sharper_version: >
+    The MDPI review of beta-thalassemia in Bangladesh states "All thalassemia
+    children require at least one to four bags of blood each month" — with no 42%
+    narrowing. Read that way, thalassemia ALONE is 134% of the entire national
+    anchor.
+  interpretation: >
+    The published Bangladeshi figures are mutually inconsistent by more than 1.5x.
+    The most probable reading is the one DGHS itself hints at: 950,000-1,000,000
+    is a REPORTED-COLLECTIONS FLOOR, not a demand estimate, because private blood
+    banks do not all report to DGHS.
+  decision: >
+    Do NOT tune any central value to make the sum fit. ACCESS_NOTES.md section 4
+    warned against exactly that, and the inputs are cited while the anchor is not
+    a demand figure at all. Instead v1 claims only what it can evidence: daily
+    district-level demand arising from dengue and thalassemia, each carrying its
+    own low/central/high band. The national anchor is retained below as a
+    CROSS-CHECK the dataset is expected to exceed, not as a target.
+  why_this_is_stronger: >
+    A dataset that silently reconciled to a floor would look tidier and be wrong.
+    Reporting that two independent published sources cannot both be true is a
+    real finding, and it is the honest basis for the bounds this dataset ships.
+
+# ===========================================================================
+# STREAM 1 — DENGUE
+# ===========================================================================
+dengue:
+  driver: dengue_admissions          # observed daily, district grain, DGHS
+  component: platelets_primary
+
+  transfusion_rate:
+    description: Proportion of ADMITTED dengue patients who receive a transfusion.
+    low: 0.097
+    central: 0.22
+    high: 0.426
+    units: fraction
+    citation_low: >
+      Clinical bleeding was recorded in 9.7% of serologically confirmed admitted
+      dengue patients (tertiary hospital study, n=225). Used as the low bound because
+      bleeding is the clinically defensible transfusion trigger.
+    citation_high: >
+      42.6% of admitted dengue patients received platelet transfusion in the same
+      study. Used as the HIGH bound, not the central estimate.
+    citation_central: >
+      Midpoint-weighted toward the low end pending A13 reconciliation. NOT independently
+      sourced — this is the one value in this file that is a modelling choice rather
+      than a citation, and it is marked as such deliberately.
+    caveat: >
+      Regional transfusion practice is widely acknowledged to be over-liberal. A
+      Bangladeshi transfusion specialist (Sheikh Hasina National Institute of Burn and
+      Plastic Surgery) publicly estimated that in private hospitals 90% of platelet
+      transfusions are given unnecessarily. A Tan Tock Seng Hospital study (n=788)
+      found prophylactic platelet transfusion in non-bleeding adult dengue patients
+      with platelets <20,000/mm3 did not reduce bleeding and slowed platelet recovery.
+    defence: >
+      We model OBSERVED PRACTICE, not clinical ideal, because RoktoNet must supply what
+      hospitals actually request. This is stated explicitly rather than left to be found.
+      The low bound exists so a reviewer can see the clinically-indicated floor.
+    source_geography: India (tertiary hospital); corroborating studies Singapore, Bangladesh
+
+  units_per_transfused_case:
+    description: Mean units transfused per dengue patient who is transfused.
+    low: 3.0
+    central: 4.0
+    high: 6.0
+    units: bags
+    citation_central: >
+      835 platelet components transfused across 227 dengue patients = 3.68 units
+      per transfused patient; 50.7% of patients received a maximum of 4 units each.
+      Hospital-based blood transfusion centre study (Hematol Transfus Int J).
+    citation_corroborating: >
+      Second study (n=203, random-donor pooled platelet concentrates from whole
+      blood): responders averaged 4 units, non-responders 8 units, administered as
+      4 units per sitting. Asian J Transfus Sci / PMC5020224.
+    citation_high: >
+      6.0 covers repeat-sitting patients and the non-responder group (8 units) that
+      both studies identify, without adopting the non-responder figure as typical.
+    resolved: >
+      SOURCED 2026-09-23, replacing a 1.0/2.0/4.0 placeholder that was roughly HALF
+      the observed value. Both studies independently land near 4 units per
+      transfused case. This was previously flagged as the weakest value in the file.
+    unit_definition_caveat: >
+      These are random-donor platelet (RDP) units, each derived from one whole-blood
+      donation, so they map 1:1 onto RoktoNet inventory_unit rows with
+      component='platelets'. NOTE that the national anchor below counts "bags"
+      collected, a whole-blood-donation measure. The two are commensurate at the
+      DONATION level but not at the patient-episode level, which is a further reason
+      the anchor is a cross-check rather than a reconciliation target.
+    source_geography: India (both studies); no Bangladeshi per-patient unit count found.
+
+# ===========================================================================
+# STREAM 2 — TRAUMA / ROAD TRAFFIC   *** DEFERRED TO v1.1, NOT IN v1 ***
+# ===========================================================================
+# Deferred 2026-09-23. Not dropped — the values below are retained as the starting
+# point for v1.1. Two reasons for deferring:
+#   1. All three of its rates were unsourced placeholders, and sourcing them is a
+#      research task of its own.
+#   2. Its sources disagree substantially with each other. RSF and BPWA report the
+#      SAME Eid-ul-Adha 2026 period as 281 vs 402 killed and 837 vs 1,294 injured —
+#      roughly 45% apart. That stream therefore needs a genuine multi-source
+#      reconciliation design, not a single number.
+# Nothing in v1 reads this block. Re-enable by sourcing the three action_required
+# values and adding the stream to build_blood_demand.py.
+trauma:
+  status: DEFERRED_TO_V1_1
+  driver: rta_injured_est            # MODELLED daily district estimate, not observed
+  component: whole_blood_and_prbc
+
+  transfusion_rate:
+    description: Proportion of INJURED road casualties requiring transfusion.
+    low: 0.08
+    central: 0.15
+    high: 0.25
+    units: fraction
+    citation: >
+      NOT YET SOURCED to a specific study. Placeholder bounds from general trauma
+      literature ranges. Requires a targeted literature pass before freeze.
+    action_required: true
+    note: >
+      Applied to INJURED counts, never to fatality counts. Fatalities consume little
+      blood; injured trauma patients consume most of it. Sources report both, and
+      conflating them would inflate demand substantially.
+
+  units_per_transfused_case:
+    low: 2.0
+    central: 3.0
+    high: 6.0
+    units: bags
+    citation: NOT YET SOURCED. Placeholder.
+    action_required: true
+
+  o_negative_uplift:
+    description: >
+      Emergency trauma draws disproportionately on O-negative, because it is issued
+      before cross-matching is complete. Recipient demand is therefore NOT distributed
+      identically to donor population frequency.
+    low: 1.5
+    central: 2.5
+    high: 4.0
+    units: multiplier on O- population share, for this stream only
+    citation: NOT YET SOURCED. Placeholder — must be sourced or removed before freeze.
+    action_required: true
+
+# ===========================================================================
+# STREAM 3 — CHRONIC / THALASSEMIA
+# ===========================================================================
+# This is the most defensible stream in the dataset. Every input is published and
+# Bangladeshi. It produces a near-constant floor that does not depend on season.
+chronic:
+  driver: resident_patient_population
+  component: whole_blood_and_prbc
+
+  thalassemia_patients_national:
+    low: 60000
+    central: 65000
+    high: 70000
+    units: patients
+    citation: >
+      Estimated 60,000-70,000 thalassemia patients in Bangladesh (commonly cited
+      national figure; Bangladesh lies in the global thalassemia belt with roughly
+      9,176 new patients per year).
+
+  transfusion_dependent_fraction:
+    low: 0.67
+    central: 0.67
+    high: 0.67
+    units: fraction
+    citation: >
+      "Two-thirds (67%) of thalassemia patients in Bangladesh are transfusion-dependent
+      who have to receive blood regularly for as long as they live."
+      Orphanet Journal of Rare Diseases, 2025 — Thalassemia in Bangladesh: progress,
+      challenges, and a strategic blueprint for prevention.
+    note: Single published point estimate; no range available, so bounds are collapsed.
+
+  regular_transfusion_fraction:
+    description: Of transfusion-dependent patients, the share on a regular monthly cycle.
+    low: 0.42
+    central: 0.42
+    high: 0.42
+    units: fraction
+    citation: >
+      "About 42% of these patients require one to four bags of blood every month."
+      Orphanet Journal of Rare Diseases, 2025.
+
+  bags_per_patient_month:
+    low: 1.0
+    central: 2.5
+    high: 4.0
+    units: bags/patient/month
+    citation: >
+      "one to four bags of blood every month" — Orphanet J Rare Dis, 2025.
+      Low and high are the stated range endpoints; central is the midpoint.
+    note: Central is a midpoint of a cited range, which is weaker than a cited central
+          value but far stronger than an invented one.
+
+  non_thalassemia_chronic_multiplier:
+    description: >
+      Uplift to cover other chronic transfusion-dependent conditions (aplastic anaemia,
+      chronic renal disease, haematological malignancy on maintenance).
+    low: 1.0
+    central: 1.0
+    high: 1.0
+    units: multiplier
+    citation: >
+      DELIBERATELY SET TO 1.0 (no uplift) for v1. These patients exist and are real
+      demand, but no Bangladeshi prevalence figure was found. Rather than invent a
+      multiplier, their demand is allowed to fall into the solved RESIDUAL stream,
+      where it is absorbed honestly instead of being guessed here.
+
+# ===========================================================================
+# STREAM 4 — RESIDUAL   *** REMOVED FROM v1. THE METHOD DOES NOT WORK. ***
+# ===========================================================================
+# The original design solved this stream as
+#     residual_annual = national_total_known - sum(streams 1..3)
+# and that property was described as "what makes the whole dataset defensible:
+# it provably sums to a published national figure."
+#
+# It does not hold. See reconciliation_finding at the top of this file: the dengue
+# and chronic streams alone reach 85% of the anchor at central values and 153% at
+# high bounds, so the residual is tiny at best and negative at worst. A stream
+# defined as a subtraction cannot be reported when the subtraction goes negative.
+#
+# Surgery, oncology, obstetrics, anaemia and GI bleeding are all real demand and
+# are simply ABSENT from v1. That is a stated limitation, not a hidden one — v1
+# is a LOWER BOUND on total blood demand, covering two named causes.
+#
+# This is the honest form of the original intent. The dataset still reports what
+# it can evidence; it no longer claims a national-total property it cannot support.
+residual:
+  status: REMOVED_FROM_V1
+  reason: method_arithmetically_impossible
+  see: reconciliation_finding
+  consequence: >
+    v1 total demand is a LOWER BOUND, not an estimate of all national demand.
+    DATASET.md must state this plainly, and any figure quoted from this dataset
+    must be described as "dengue + thalassemia demand", never as "blood demand".
+
+# ===========================================================================
+# NATIONAL ANCHOR — A CROSS-CHECK, NO LONGER A RECONCILIATION TARGET
+# ===========================================================================
+# Role changed 2026-09-23. This figure is NOT something the dataset is tuned to
+# hit. It is retained because it remains the only published national number, and
+# comparing against it is informative — but the comparison now runs the other way:
+# the dataset is EXPECTED to exceed it, and the gap is a finding to report, not an
+# error to correct. See reconciliation_finding at the top of this file.
+national_anchor:
+  role: cross_check_only
+  expected_relationship: dataset_may_exceed_this_figure
+  annual_requirement_bags:
+    low: 950000
+    central: 975000
+    high: 1000000
+    citation: >
+      Dr Ataul Karim, Deputy Programme Manager, Safe Blood Transfusion Programme, DGHS:
+      Bangladesh has an annual need of 9.5 lakh to 10 lakh bags of blood.
+      Reported in The Business Standard, 2022-06-14.
+  annual_collected_bags:
+    central: 750000
+    citation: >
+      Same source: "Last year, 7.5 lakh bags of blood were collected and transfused
+      to recipients."
+  voluntary_donor_share:
+    central: 0.32
+    citation: Same source — volunteer donors meet 32% of blood demand.
+  undercount_warning: >
+    CRITICAL. The national anchor is itself an undercount. Private blood banks do not
+    all report to DGHS, and experts state actual demand is higher than the published
+    figure. Reconciling to this anchor therefore reconciles to a FLOOR, not to truth.
+    This must be stated in DATASET.md and in the paper. Reconciling successfully does
+    not prove the dataset is correct; it proves it is not wildly wrong.
+
+# ===========================================================================
+# OPEN ACTIONS BEFORE FREEZE
+# ===========================================================================
+open_actions:
+  resolved_2026_09_23:
+    - "dengue.units_per_transfused_case — SOURCED (two studies, both near 4 units).
+       Was 1.0/2.0/4.0, now 3.0/4.0/6.0 — the placeholder was ~half the real value."
+    - "chronic reconciliation tension (ACCESS_NOTES section 4) — RESOLVED, but not
+       as expected. It was not a bad input; the reconciliation METHOD was impossible.
+       Residual stream removed, anchor demoted to cross-check."
+    - "residual.weekday_weight — moot, stream removed from v1."
+
+  remaining_for_v1_freeze:
+    - "dengue.transfusion_rate.central (0.22) — still a MODELLING CHOICE, not a
+       citation. It is now the single largest un-cited lever in the dataset. It sits
+       inside a cited low/high band (0.097 / 0.426) and the sensitivity analysis must
+       show the effect of moving it across that whole band."
+
+  deferred_to_v1_1:
+    - "trauma.transfusion_rate — not sourced"
+    - "trauma.units_per_transfused_case — not sourced"
+    - "trauma.o_negative_uplift — not sourced; remove if it cannot be sourced"
+    - "obstetric stream — never scoped"
+    - "surgical / oncology / anaemia demand — absent from v1, see residual block"

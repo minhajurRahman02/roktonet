@@ -1,0 +1,71 @@
+# Blood type distribution — RoktoNet blood demand dataset (Stage 6A / A11)
+#
+# Calibrated to a real Bangladeshi published study, not to a global or Western
+# reference distribution. This matters: Bangladesh is B-dominant, unlike the
+# O-dominant profile assumed by most Western blood-supply literature.
+
+source:
+  citation: >
+    Karim S, Hoque MM, et al. "The Distribution of ABO and Rhesus Blood Groups Among
+    Blood Donors Attending [Dhaka Medical College]." J Dhaka Med Coll. 2015;24(1):53-56.
+  sample_size: 39512
+  population: blood donors attending Dhaka Medical College
+  caveat: >
+    This is a DONOR population, not a general population and not a RECIPIENT population.
+    Donor cohorts skew male and skew urban. Using it as a proxy for demand distribution
+    is an approximation and is listed in DATASET.md limitations.
+
+abo:
+  B:  0.352
+  O:  0.340
+  A:  0.224
+  AB: 0.084
+
+rhesus:
+  positive: 0.968
+  negative: 0.032
+
+# ---------------------------------------------------------------------------
+# Combined 8-type distribution
+# ---------------------------------------------------------------------------
+# Derived as abo x rhesus under an independence assumption. ABO and Rh loci are
+# genetically independent, so this is standard practice, but it is a derivation
+# rather than a directly observed 8-way table. Flagged accordingly.
+combined:
+  "B+":  0.340736
+  "O+":  0.329120
+  "A+":  0.216832
+  "AB+": 0.081312
+  "B-":  0.011264
+  "O-":  0.010880
+  "A-":  0.007168
+  "AB-": 0.002688
+  # sums to exactly 1.000000
+
+derivation_note: >
+  combined[X±] = abo[X] * rhesus[±], assuming independence of the ABO and Rh loci.
+
+# ---------------------------------------------------------------------------
+# Why O-negative matters disproportionately
+# ---------------------------------------------------------------------------
+o_negative_note: >
+  O-negative is roughly 1.1% of the donor population here — genuinely scarce. It is
+  also the universal red-cell donor, so it is issued in emergencies before cross-matching
+  completes. Recipient demand for O-negative therefore exceeds its population share.
+  The uplift factor lives in conversion_rates.yaml under trauma.o_negative_uplift and
+  is currently UNSOURCED — it must be sourced or removed before the dataset is frozen.
+  Do not silently bake an uplift into this file; keep the population distribution clean
+  and apply demand-side uplift in the conversion layer where it is visible.
+
+# ---------------------------------------------------------------------------
+# Component applicability
+# ---------------------------------------------------------------------------
+# Not every stream consumes the same component, and ABO/Rh matching rules differ
+# by component. v1 treats all demand as whole-blood-equivalent "bags" for simplicity.
+component_simplification: >
+  v1 expresses all demand in whole-blood-equivalent bags. Dengue demand is in reality
+  predominantly PLATELETS, which have different matching rules, a 5-day shelf life
+  versus 35 days for red cells, and separate inventory. Collapsing them into one unit
+  is a real simplification that understates the operational difficulty of the dengue
+  surge. Listed in DATASET.md limitations. Splitting components is a v1.1 candidate
+  and would materially improve the realism of the expiry logic in Section 7B.

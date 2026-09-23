@@ -1,0 +1,13 @@
+target,feature_set,n_features,best_model,mae,naive_mae,vs_naive_pct,folds_won,beats_naive
+level,parsimonious_endo,7,linear_regression,120.914,132.938,9.0,5/10,no
+delta,parsimonious_endo,7,linear_regression,120.914,132.938,9.0,5/10,no
+level,parsimonious,8,ridge,143.861,132.938,-8.2,5/10,no
+delta,parsimonious,8,ridge,144.419,132.938,-8.6,5/10,no
+delta,weather_only,27,ridge,152.176,132.938,-14.5,4/10,no
+delta,endogenous,22,ridge,174.74,132.938,-31.4,4/10,no
+delta,all,45,ridge,181.252,132.938,-36.3,3/10,no
+delta,endo_rain,35,ridge,181.593,132.938,-36.6,3/10,no
+level,endogenous,22,ridge,202.931,132.938,-52.7,4/10,no
+level,endo_rain,35,ridge,210.351,132.938,-58.2,3/10,no
+level,all,45,ridge,210.428,132.938,-58.3,2/10,no
+level,weather_only,27,ridge,470.497,132.938,-253.9,0/10,no

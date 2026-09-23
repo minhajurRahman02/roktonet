@@ -1,0 +1,12 @@
+check,parameter,fill_values,total_missing,missing_rate,status
+fill_and_missing,rain_mm,0,0.0,0.0,OK
+fill_and_missing,temp_mean_c,0,0.0,0.0,OK
+fill_and_missing,temp_max_c,0,0.0,0.0,OK
+fill_and_missing,humidity_pct,0,0.0,0.0,OK
+value_range,rain_mm,,0.0,"[0.0, 800.0]",OK
+value_range,temp_mean_c,,0.0,"[2.0, 45.0]",OK
+value_range,temp_max_c,,0.0,"[5.0, 50.0]",OK
+value_range,humidity_pct,,0.0,"[5.0, 100.0]",OK
+monsoon_dominance,rain_mm,15.22,0.679,ratio 22.4 (need >= 8),OK
+northeast_wet_anomaly,rain_mm,12.591,5.611,Sylhet 12.59 vs Rajshahi 5.61,OK
+temperature_phase,temp_mean_c,29.326,17.969,Apr-May 29.3 vs Dec-Jan 18.0,OK

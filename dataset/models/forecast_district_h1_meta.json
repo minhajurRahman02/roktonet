@@ -1,0 +1,86 @@
+{
+  "kind": "naive_persistence_with_calibrated_interval",
+  "predictor": "persistence",
+  "grain": "district",
+  "horizon_weeks": 1,
+  "tier_thresholds": {
+    "high": 20.0,
+    "medium": 5.0
+  },
+  "interval": {
+    "high": {
+      "0.50": {
+        "lo": -5.0,
+        "hi": 2.0,
+        "coverage": 0.5495467333541731,
+        "width": 7.0
+      },
+      "0.80": {
+        "lo": -24.0,
+        "hi": 12.0,
+        "coverage": 0.8036886527039699,
+        "width": 36.0
+      },
+      "0.95": {
+        "lo": -87.0,
+        "hi": 67.09999999999945,
+        "coverage": 0.9502969678024382,
+        "width": 154.09999999999945
+      }
+    },
+    "medium": {
+      "0.50": {
+        "lo": -1.0,
+        "hi": 1.0,
+        "coverage": 0.5324585635359116,
+        "width": 2.0
+      },
+      "0.80": {
+        "lo": -11.0,
+        "hi": 11.0,
+        "coverage": 0.8049033149171271,
+        "width": 22.0
+      },
+      "0.95": {
+        "lo": -37.62499999999993,
+        "hi": 50.0,
+        "coverage": 0.9499309392265194,
+        "width": 87.62499999999993
+      }
+    },
+    "low": {
+      "0.50": {
+        "lo": 0.0,
+        "hi": 1.0,
+        "coverage": 0.5884514435695538,
+        "width": 1.0
+      },
+      "0.80": {
+        "lo": -3.600000000000051,
+        "hi": 10.0,
+        "coverage": 0.8010498687664042,
+        "width": 13.600000000000051
+      },
+      "0.95": {
+        "lo": -19.0,
+        "hi": 39.399999999999864,
+        "coverage": 0.9511811023622048,
+        "width": 58.399999999999864
+      }
+    }
+  },
+  "default_level": 0.8,
+  "walkforward": {
+    "mae": 12.99925,
+    "rmse": 60.643530157800015,
+    "oof_rows": 8000
+  },
+  "predict": {
+    "point": "admissions in the most recent COMPLETE week for the unit",
+    "lower": "max(0, point + interval[tier][level].lo)",
+    "upper": "point + interval[tier][level].hi",
+    "tier": "high if mean weekly admissions >= high threshold, else medium if >= medium threshold, else low"
+  },
+  "units": "ADMISSIONS. Convert to bags via conversion_rates.yaml.",
+  "why_baseline": "72 walk-forward evaluations; no learned configuration beat naive persistence with paired Wilcoxon p < 0.05. Closest was division h=1 parsimonious_endo, p=0.322."
+}

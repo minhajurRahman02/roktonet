@@ -1,0 +1,101 @@
+# dataset/.gitignore
+#
+# Scoped to dataset/. Paths are relative to this file; works alongside the
+# repo-root .gitignore (git applies both).
+#
+# ===========================================================================
+# DESIGN RULE — read before adding anything here.
+#
+# Ignore by PATH, never by file extension.
+#
+# An extension says nothing about whether a file is a source or an output.
+# A .pdf can be a re-fetchable bulk corpus OR a one-off report that exists
+# nowhere else. A .zip can be a packaging artefact OR the only copy of a
+# downloaded dataset. A .pkl can be a throwaway checkpoint OR the trained model
+# the deployed engine loads at startup. Ignoring the extension gets the first
+# case right and silently destroys the second.
+#
+# So: a rule belongs here only if a specific PATH is BOTH
+#   (a) large, AND
+#   (b) regenerable by a script committed in this repo.
+# Both halves. If either fails, commit it.
+#
+# Default for anything new: COMMIT IT. This folder is evidence for an academic
+# defence — a missing source file is far worse than a slightly larger repo.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# The DGHS daily dengue PDF corpus — 1,639 files, ~0.5-1 GB.
+#
+# Path-scoped deliberately: this is the ONE pdf location that is genuinely
+# reproducible. raw/trauma/ and any future raw/<source>/ are NOT covered, and
+# must not be — SOURCES.md already lists the DGHS Health Bulletin (robots-
+# disallowed to automated fetch) and the BRTA/RSF reports as future sources.
+# Those are PDFs that no script can re-fetch, so they have to be committed.
+#
+# Excluding these specific files does not weaken provenance:
+#   - raw/dengue/_manifest.csv holds URL, HTTP status, bytes and SHA-256 for
+#     every one of them, and IS committed (only *.pdf is excluded here).
+#   - scripts/fetch_dengue_wayback.py re-fetches them deterministically from the
+#     Wayback CDX API — resumable, idempotent, verifiable against those hashes.
+#
+# The SOURCES.md rule that raw files are NEVER EDITED BY HAND still holds
+# absolutely. That is the half that actually protects the data.
+# ---------------------------------------------------------------------------
+raw/dengue/*.pdf
+
+# ---------------------------------------------------------------------------
+# Diagnostic text dumps from parse_dengue.py --dump-text.
+# Regenerable in seconds from any PDF; purely for calibrating extraction rules.
+# ---------------------------------------------------------------------------
+reports/pdf_text/
+
+# ---------------------------------------------------------------------------
+# Explicit scratch areas. Nothing here is ever an input to anything.
+# Put throwaway experiments in these paths and they stay out of git by default.
+# ---------------------------------------------------------------------------
+scratch/
+tmp/
+models/experiments/
+notebooks/scratch/
+
+# NOTE on trained models — deliberately NOT ignored.
+# Stage 6B produces a forecasting model that the Python engine LOADS AT RUNTIME
+# on Render to serve /forecast/risk-check. Retraining on a free-tier dyno is not
+# viable, so the frozen model artefact must ship with the repo. A scikit-learn
+# LinearRegression pickle is a few KB. Ignoring it would break the deployment.
+# Only throwaway experiment runs go under models/experiments/ above.
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# Secrets. A future acquisition script (Kaggle, Mendeley, an API) will want one.
+# .env.example is explicitly allowed back so the required keys stay documented.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+kaggle.json
+
+# ---------------------------------------------------------------------------
+# Editor and OS noise
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
