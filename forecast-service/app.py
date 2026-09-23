@@ -41,8 +41,8 @@ import traceback
 
 from flask import Flask, jsonify, request
 
-from forecast import (ModelError, model_info, regional_demand, risk_check,
-                      HORIZONS, LEVELS)
+from forecast import (ModelError, model, model_info, regional_demand,
+                      risk_check, HORIZONS, LEVELS)
 
 app = Flask(__name__)
 
@@ -68,7 +68,28 @@ def handle_model_error(e):
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    """Readiness, not just liveness.
+
+    The model loads lazily on first use, so a health check that only returns
+    {"status": "ok"} would pass on a deployment whose forecast_model.json never
+    made it into the build — and the first real risk-check would then be the
+    thing that discovers it. That failure would surface during a demo, not here.
+
+    So this actually loads the artefact. It is cached after the first call, so
+    the cost is one 79 KB JSON parse per process, which also usefully warms the
+    service on Render's free tier where the frontend pings /health to wake it.
+
+    503, not 200, when the model is unavailable: Render and any uptime check
+    should see a service that cannot answer as DOWN, because it is.
+    """
+    try:
+        m = model()
+    except Exception as e:                                  # noqa: BLE001
+        return jsonify({"status": "error", "model_loaded": False,
+                        "error": str(e)}), 503
+    return jsonify({"status": "ok", "model_loaded": True,
+                    "schema_version": m.get("schema_version"),
+                    "generated": m.get("generated")})
 
 
 @app.route("/model-info", methods=["GET"])
@@ -99,7 +120,7 @@ def forecast_risk_check():
                            "needed_by_date") if data.get(k) is None]
     if missing:
         return jsonify({"error": f"missing required field(s): "
-                                 f"{', '.join(missing)}"}), 400
+                        f"{', '.join(missing)}"}), 400
     try:
         units_required = float(data["units_required"])
         current_stock = float(data["current_stock_units"])
@@ -148,7 +169,7 @@ def forecast_regional_demand():
         return jsonify({"error": "horizon must be an integer"}), 400
     if h not in HORIZONS:
         return jsonify({"error": f"horizon must be one of "
-                                 f"{', '.join(map(str, HORIZONS))}"}), 400
+                        f"{', '.join(map(str, HORIZONS))}"}), 400
 
     grain = request.args.get("grain", "division")
     if grain not in ("district", "division"):
@@ -157,7 +178,7 @@ def forecast_regional_demand():
     level = request.args.get("level", "0.80")
     if level not in LEVELS:
         return jsonify({"error": f"level must be one of "
-                                 f"{', '.join(LEVELS)}"}), 400
+                        f"{', '.join(LEVELS)}"}), 400
     try:
         return jsonify(regional_demand(horizon_weeks=h, grain=grain,
                                        as_of_date=request.args.get("as_of"),
