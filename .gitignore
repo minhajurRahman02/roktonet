@@ -70,6 +70,26 @@ web_modules/
 .env.*
 !.env.example
 
+# frontend/.env.production is COMMITTED ON PURPOSE.
+#
+# It holds only VITE_* service URLs, and every VITE_* value is substituted into
+# the client bundle at build time -- so these strings are already public to
+# anyone who opens the deployed JavaScript. There is nothing here to protect,
+# and no secret may ever be added to this file for the same reason.
+#
+# It exists because build-time variables set only in a hosting dashboard are a
+# repeated failure mode on this project: they are invisible in the repo, they
+# do not travel to a teammate's clone, and when one is missing the build still
+# SUCCEEDS and ships a bundle with an empty string in place of the URL. That
+# cost us a deploy on 2026-09-24, when VITE_ROKTIM_URL was set in Cloudflare
+# and still never reached the bundle. Committing the value makes the build
+# reproducible on any machine and on Cloudflare, with no dashboard step.
+#
+# A real environment variable still takes precedence over this file (verified),
+# so the dashboard remains authoritative wherever it is actually set. This is
+# a floor, not a replacement.
+!.env.production
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
