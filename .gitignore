@@ -88,7 +88,17 @@ web_modules/
 # A real environment variable still takes precedence over this file (verified),
 # so the dashboard remains authoritative wherever it is actually set. This is
 # a floor, not a replacement.
+#
+# frontend/.env.development is committed for the same reason, and it is a
+# SEPARATE file because Vite loads different env files per mode:
+#   npm run dev   -> .env, .env.development
+#   npm run build -> .env, .env.production
+# A value in only one of them works in only one of them.
+#
+# Personal overrides go in .env.development.local / .env.local / .env, all of
+# which stay ignored below.
 !.env.production
+!.env.development
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
