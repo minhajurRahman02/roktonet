@@ -44,6 +44,13 @@ import AdminAnalytics from './pages/admin/Analytics';
 import AdminBroadcasts from './pages/admin/Broadcasts';
 import AdminAuditLog from './pages/admin/AuditLog';
 import AdminReports from './pages/admin/Reports';
+// Roktim (Phase 6E). Admin-only, and deliberately NOT wrapped in AppShell:
+// the page takes the full viewport with its own dark theme and navigation.
+// Deleting these three imports and their three routes is part of removing the
+// module.
+import RoktimPage from './roktim/RoktimPage';
+import RoktimDistrictsPage from './roktim/RoktimDistrictsPage';
+import RoktimLogPage from './roktim/RoktimLogPage';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import VerifyEmail from './pages/VerifyEmail';
@@ -562,6 +569,40 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Roktim. Same ProtectedRoute + RoleRoute guards as every other
+              admin page, but no AppShell wrapper, so no sidebar, no TopBar and
+              no breadcrumbs. Its own shell provides the way back. */}
+          <Route
+            path="/admin/roktim"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['admin']}>
+                  <RoktimPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/roktim/districts"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['admin']}>
+                  <RoktimDistrictsPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/roktim/log"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['admin']}>
+                  <RoktimLogPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/admin/reports"
             element={

@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -23,6 +23,9 @@ const NAV_BY_ROLE = {
     { to: '/admin/broadcasts', label: 'Broadcasts', icon: Megaphone },
     { to: '/admin/audit', label: 'Audit Log', icon: ScrollText },
     { to: '/admin/reports', label: 'Reports', icon: Download },
+    // Roktim (Phase 6E). Last in the list because it leaves the shell
+    // entirely; removing the module means deleting this one line.
+    { to: '/admin/roktim', label: 'Roktim', icon: Sparkles },
   ],
   bank: [
     { to: '/blood-bank', label: 'Overview', icon: LayoutDashboard, end: true },

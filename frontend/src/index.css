@@ -97,3 +97,92 @@ body {
   width: 52px; height: 52px; border-radius: 9999px; background: white;
   position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
 }
+
+/* =========================================================================
+   Roktim (Phase 6E) -- the AI module's own visual language.
+
+   Every rule here is prefixed `rk-` and nothing above is touched. Deleting
+   this block is part of removing Roktim, along with src/roktim/,
+   src/api/roktim.js, backend/routes/roktim.js and one table.
+
+   WHY CSS AND NOT FRAMER MOTION, WHICH IS ALREADY A DEPENDENCY
+   framer-motion animates React state, which means the main thread. These are
+   ambient background loops that run for as long as the page is open; as
+   keyframes on transform and border-radius they stay on the compositor and
+   cost nothing per frame. framer-motion is still used for Roktim's entrances
+   and layout transitions, where it is the right tool.
+   ========================================================================= */
+
+/* Animated gradient mesh. Two large blurred blooms that drift, rotate and
+   reshape. Durations were 54/67/79s in the first mockup and read as static;
+   these are roughly twice as fast, which is enough to notice without pulling
+   the eye off the content. */
+@keyframes rk-drift-1 {
+  50% { transform: translate(7vw, 6vh) scale(1.14) rotate(50deg);
+        border-radius: 38% 62% 60% 40% / 58% 42% 58% 42%; }
+}
+@keyframes rk-drift-2 {
+  50% { transform: translate(-8vw, -5vh) scale(1.12) rotate(-55deg);
+        border-radius: 60% 40% 35% 65% / 38% 62% 38% 62%; }
+}
+@keyframes rk-drift-3 {
+  50% { transform: translate(5vw, -7vh) scale(1.08) rotate(35deg);
+        border-radius: 55% 45% 38% 62% / 45% 58% 42% 55%; }
+}
+.rk-mesh { position: fixed; inset: -25%; z-index: 0; pointer-events: none;
+           filter: blur(90px); opacity: .40; }
+.rk-mesh i { position: absolute; display: block; }
+.rk-b1 { width: 46vw; height: 42vw; background: #574B90; top: -6%; left: -8%;
+         border-radius: 58% 42% 47% 53% / 44% 51% 49% 56%;
+         animation: rk-drift-1 26s ease-in-out infinite; }
+.rk-b2 { width: 40vw; height: 40vw; background: #3C3470; bottom: -10%; right: -6%;
+         border-radius: 41% 59% 62% 38% / 55% 40% 60% 45%;
+         animation: rk-drift-2 32s ease-in-out infinite; }
+.rk-b3 { width: 34vw; height: 30vw; background: #6455A8; top: 34%; left: 38%;
+         border-radius: 52% 48% 43% 57% / 49% 54% 46% 51%;
+         animation: rk-drift-3 38s ease-in-out infinite; opacity: .55; }
+
+/* The gradient itself moves inside the fill, so the wordmark and the back
+   pill shimmer rather than sitting still. */
+@keyframes rk-sheen { to { background-position: 200% center; } }
+.rk-gradient-text {
+  background: linear-gradient(100deg, #8474CE, #C4B8F5, #A493E6, #6455A8, #8474CE);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; animation: rk-sheen 7s linear infinite;
+}
+/* Gradient ring on a transparent pill. Two backgrounds, one clipped to the
+   padding box and one to the border box, is the only way to get a gradient
+   border that also keeps rounded corners. */
+.rk-gradient-ring {
+  border: 1.5px solid transparent; border-radius: 9999px;
+  background:
+    linear-gradient(var(--rk-pill-bg, #141220), var(--rk-pill-bg, #141220)) padding-box,
+    linear-gradient(100deg, #8474CE, #C4B8F5, #6455A8, #8474CE) border-box;
+  background-size: auto, 200% auto;
+  animation: rk-sheen 6s linear infinite;
+}
+
+/* Curve draw-in. The path is dashed with its own length, then the offset is
+   animated to zero, which is the standard SVG line-draw. */
+@keyframes rk-draw { to { stroke-dashoffset: 0; } }
+.rk-draw { animation: rk-draw 1.5s cubic-bezier(.4, 0, .2, 1) forwards; }
+
+/* Service status dot. */
+@keyframes rk-pulse { 50% { opacity: .35; transform: scale(.82); } }
+.rk-pulse { animation: rk-pulse 2.4s ease-in-out infinite; }
+
+/* Glow rather than a hard shadow, per the spec: a wide, low-opacity violet
+   cast that reads as light rather than as a dropped edge. */
+.rk-glow { box-shadow: 0 24px 64px -40px #574B90, 0 2px 10px -6px rgba(0,0,0,.6); }
+.rk-glow-strong { box-shadow: 0 30px 80px -36px #6455A8; }
+
+/* Non-negotiable. The gradient drift, the sheen and the curve draw all stop,
+   and the page stays fully legible static. A vestibular-sensitive reader gets
+   the same information, just without the motion. */
+@media (prefers-reduced-motion: reduce) {
+  .rk-mesh i, .rk-gradient-text, .rk-gradient-ring, .rk-draw, .rk-pulse {
+    animation: none !important;
+  }
+  .rk-draw { stroke-dashoffset: 0 !important; }
+}

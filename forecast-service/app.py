@@ -42,22 +42,51 @@ import traceback
 from flask import Flask, jsonify, request
 
 from forecast import (ModelError, model, model_info, regional_demand,
-                      risk_check, HORIZONS, LEVELS)
+                      risk_check, seasonal_curve, seasonal_grid, list_units,
+                      HORIZONS, LEVELS)
 
 app = Flask(__name__)
 
 
-@app.after_request
-def allow_cors_on_health_only(response):
-    """Lets the browser read /health, and ONLY /health, cross-origin.
+# --- CORS, widened deliberately in Phase 6E (Roktim) -----------------------
+#
+# This used to open /health alone, mirroring the optimization engine, because
+# /forecast/* was to be reached only by the Node backend. The Roktim design
+# changed that: the browser now calls this service DIRECTLY, and the backend is
+# not in the advisory path at all. See ROKTIM_UI_SPEC.md section 2.
+#
+# The reasoning for why that is safe HERE and would not be for the engine:
+#   - this service is read-only; no route mutates anything, anywhere
+#   - it holds no credentials, reads no cookies and issues no session
+#   - its only input is published DGHS dengue statistics
+#   - the engine, by contrast, allocates real inventory
+#
+# So the widening is a property of what this service is, not a relaxation of
+# the project's stance. It is still not '*': ROKTIM_ALLOWED_ORIGINS is an
+# explicit allowlist, and an unlisted origin gets no CORS headers at all.
+# /health keeps '*' because uptime checks and the wake-up ping have no origin.
+_ALLOWED_ORIGINS = {
+    o.strip().rstrip("/")
+    for o in os.environ.get("ROKTIM_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+} or {"http://localhost:5173", "http://127.0.0.1:5173"}
 
-    Scoped exactly as the optimization engine scopes it: flask-cors would open
-    every route, and /forecast/* must only ever be reachable from the Node
-    backend, never from a page. '*' is safe here because /health returns a fixed
-    status, takes no input and carries no credentials.
-    """
+
+@app.after_request
+def apply_cors(response):
     if request.path == "/health":
         response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
+    origin = (request.headers.get("Origin") or "").rstrip("/")
+    if origin and origin in _ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        # Without Vary, a shared cache could serve one origin's CORS header to
+        # another origin's request.
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
     return response
 
 
@@ -183,6 +212,79 @@ def forecast_regional_demand():
         return jsonify(regional_demand(horizon_weeks=h, grain=grain,
                                        as_of_date=request.args.get("as_of"),
                                        level=level))
+    except ModelError as e:
+        return jsonify({"error": str(e), "type": "ModelError"}), 400
+    except Exception as e:                                  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/forecast/units", methods=["GET"])
+def forecast_units():
+    """Every district (or division) the model covers, with its volume tier.
+
+    Query: ?grain=district
+    """
+    grain = request.args.get("grain", "district")
+    if grain not in ("district", "division"):
+        return jsonify({"error": "grain must be district or division"}), 400
+    try:
+        return jsonify(list_units(grain))
+    except ModelError as e:
+        return jsonify({"error": str(e), "type": "ModelError"}), 400
+
+
+@app.route("/forecast/seasonal-curve", methods=["GET"])
+def forecast_seasonal_curve():
+    """One unit's 52-week seasonal profile with its calibrated band.
+
+    Added for Roktim's curve explorer. Read-only, and it exposes nothing the
+    advisory responses did not already imply -- it just shows the whole shape
+    instead of the single week an advisory happens to land on.
+
+    Query: ?unit=Dhaka&grain=district&horizon=2&level=0.80
+    """
+    unit = request.args.get("unit")
+    if not unit:
+        return jsonify({"error": "unit is required"}), 400
+
+    grain = request.args.get("grain", "district")
+    if grain not in ("district", "division"):
+        return jsonify({"error": "grain must be district or division"}), 400
+
+    try:
+        h = int(request.args.get("horizon", 2))
+    except ValueError:
+        return jsonify({"error": "horizon must be an integer"}), 400
+    if h not in HORIZONS:
+        return jsonify({"error": f"horizon must be one of "
+                                 f"{', '.join(map(str, HORIZONS))}"}), 400
+
+    level = request.args.get("level", "0.80")
+    if level not in LEVELS:
+        return jsonify({"error": f"level must be one of "
+                                 f"{', '.join(LEVELS)}"}), 400
+    try:
+        return jsonify(seasonal_curve(unit=unit, grain=grain,
+                                      horizon_weeks=h, level=level))
+    except ModelError as e:
+        return jsonify({"error": str(e), "type": "ModelError"}), 400
+    except Exception as e:                                  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/forecast/seasonal-grid", methods=["GET"])
+def forecast_seasonal_grid():
+    """Every unit's seasonal profile in one response, for the 64-sparkline grid.
+
+    Query: ?grain=district
+    """
+    grain = request.args.get("grain", "district")
+    if grain not in ("district", "division"):
+        return jsonify({"error": "grain must be district or division"}), 400
+    try:
+        return jsonify(seasonal_grid(grain))
     except ModelError as e:
         return jsonify({"error": str(e), "type": "ModelError"}), 400
     except Exception as e:                                  # noqa: BLE001

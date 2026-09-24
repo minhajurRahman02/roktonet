@@ -141,6 +141,37 @@ def _bounds(predictor: str, grain: str, h: int, tier: str, level: str) -> dict:
         raise ModelError(f"no calibration for {predictor}/{grain}/h{h}/{tier}/{level}") from e
 
 
+def _unit_coverage(predictor: str, grain: str, h: int, unit: str,
+                   level: str) -> dict:
+    """What the tier-pooled interval ACTUALLY achieves for one named unit.
+
+    The tier figure is an average, and the tier thresholds are absolute, so a
+    single tier spans an 80x range of volume. Measured per district, the same
+    bounds that cover 80.0% of the high tier overall cover 41.1% of Dhaka and
+    100% of its smallest members. Quoting the tier number beside one district's
+    curve is true about the tier and false about the district.
+
+    Added in schema 2 by scripts/measure_unit_coverage.py. Returns nulls rather
+    than raising on a schema-1 artefact, so an older forecast_model.json still
+    serves; the caller then falls back to the tier figure and says so.
+    """
+    m = model()
+    blank = {"coverage": None, "quotable": False, "n": None,
+             "mean_actual": None}
+    try:
+        e = m["unit_coverage"][predictor][grain][str(h)][unit]
+    except (KeyError, TypeError):
+        return blank
+    value = e.get(level)
+    return {"coverage": value,
+            # A unit with a handful of scored weeks has a coverage figure that
+            # is mostly noise, so the artefact marks it unquotable and the UI
+            # is expected to decline to print a number it cannot stand behind.
+            "quotable": bool(e.get("quotable")) and value is not None,
+            "n": e.get("n"),
+            "mean_actual": e.get("mean_actual")}
+
+
 def seasonal_point(unit: str, grain: str, when: date) -> float | None:
     woy = str(when.isocalendar()[1])
     prof = model()["seasonal"][grain].get(unit)
@@ -204,7 +235,12 @@ def forecast_unit(unit: str, grain: str, horizon_weeks: int,
                  "lower": admissions_to_bags(lower),
                  "upper": admissions_to_bags(upper)},
         "interval": {"level": float(level),
+                     # The tier average, kept under its original key so nothing
+                     # that already reads it breaks.
                      "measured_coverage": b["coverage"],
+                     "measured_coverage_tier": b["coverage"],
+                     "measured_coverage_unit": _unit_coverage(
+                         predictor, grain, horizon_weeks, unit, level),
                      "residual_bounds": {"lo": b["lo"], "hi": b["hi"]}},
         "accuracy": {"walkforward_mae": diag["walkforward_mae"],
                      "walkforward_rmse": diag["walkforward_rmse"],
@@ -350,6 +386,188 @@ def regional_demand(horizon_weeks: int = 2, grain: str = "division",
     }
 
 
+def list_units(grain: str = "district") -> dict:
+    """Every unit the model can answer for, with its volume tier.
+
+    The tier is not decoration. Intervals are calibrated per tier, so a caller
+    that wants to know how much to trust a unit's band needs it alongside the
+    name. Sorted so the frontend never has to.
+    """
+    m = model()
+    if grain not in m["tiers"]:
+        raise ModelError(f"grain must be one of {', '.join(sorted(m['tiers']))}")
+    return {
+        "grain": grain,
+        "units": [{"unit": u, "tier": t}
+                  for u, t in sorted(m["tiers"][grain].items())],
+    }
+
+
+def seasonal_curve(unit: str, grain: str = "district", horizon_weeks: int = 2,
+                   level: str = DEFAULT_LEVEL) -> dict:
+    """The unit's whole 52-week seasonal profile, with its calibrated band.
+
+    This is the shape behind every seasonal-mode advisory, exposed so the UI can
+    show WHY a date is called peak season rather than just asserting it.
+
+    Two honesty points that the response states rather than leaving to the
+    caller:
+
+    1. The band is a CONSTANT offset. Residuals are pooled across the year and
+       calibrated per volume tier, not per week, so the band has the same width
+       in January as in September. Coverage is therefore correct on average and
+       wrong in both directions seasonally -- too tight at the peak, too wide
+       off-season. `interval.pooled_across_year` says so in the payload.
+
+    2. This is the SEASONAL path throughout, so its accuracy is the seasonal
+       path's (2.5x worse than observed), never the headline figure.
+    """
+    m = model()
+    if grain not in m["seasonal"]:
+        raise ModelError(f"grain must be one of {', '.join(sorted(m['seasonal']))}")
+    prof = m["seasonal"][grain].get(unit)
+    if not prof:
+        raise ModelError(f"unknown {grain} '{unit}'")
+    if horizon_weeks not in HORIZONS:
+        raise ModelError(f"horizon_weeks must be one of {HORIZONS}")
+    if level not in LEVELS:
+        raise ModelError(f"level must be one of {', '.join(LEVELS)}")
+
+    tier = tier_for(unit, grain)
+    b = _bounds("seasonal", grain, horizon_weeks, tier, level)
+    diag = m["diagnostics"]["seasonal"][grain][str(horizon_weeks)]
+
+    weeks = []
+    for w in sorted(prof, key=int):
+        point = float(prof[w])
+        weeks.append({
+            "week": int(w),
+            "admissions": round(point, 2),
+            "lower": round(max(0.0, point + b["lo"]), 2),
+            "upper": round(max(0.0, point + b["hi"]), 2),
+            "bags": admissions_to_bags(point),
+        })
+
+    peak = max(weeks, key=lambda r: r["admissions"])
+    return {
+        "unit": unit, "grain": grain, "tier": tier,
+        "horizon_weeks": horizon_weeks,
+        "basis": "seasonal_historical",
+        "weeks": weeks,
+        "peak_week": peak["week"],
+        "peak_admissions": peak["admissions"],
+        "annual_median": round(
+            sorted(r["admissions"] for r in weeks)[len(weeks) // 2], 2),
+        "interval": {
+            "level": float(level),
+            "measured_coverage": b["coverage"],
+            "measured_coverage_tier": b["coverage"],
+            "measured_coverage_unit": _unit_coverage(
+                "seasonal", grain, horizon_weeks, unit, level),
+            "residual_bounds": {"lo": b["lo"], "hi": b["hi"]},
+            "pooled_across_year": True,
+            "pooled_across_tier": True,
+            "note": ("Residuals are pooled across the whole year AND across "
+                     "every unit in the volume tier, so the band width varies "
+                     "neither by week nor by unit. Tier coverage is correct on "
+                     "average; for a named unit read measured_coverage_unit, "
+                     "which is what these bounds actually achieve here."),
+        },
+        "accuracy": {"walkforward_mae": diag["walkforward_mae"],
+                     "walkforward_rmse": diag["walkforward_rmse"],
+                     "path": "seasonal_historical"},
+        "profile_statistic": ("median admissions for this unit and week-of-year "
+                              "across the dataset span"),
+        "data_span": m["data_span"],
+    }
+
+
+def seasonal_grid(grain: str = "district") -> dict:
+    """Every unit's seasonal profile at once, as bare weekly numbers.
+
+    Exists for one reason: Roktim's district grid draws 64 sparklines, and 64
+    calls to /forecast/seasonal-curve to fill them would be absurd. This is the
+    same underlying profile with the band, the bag conversion and the
+    diagnostics stripped out, because a sparkline needs none of them. About 40
+    KB for all 64 districts against roughly 1.5 MB for the equivalent set of
+    full curve responses.
+
+    `weeks` is a bare array indexed 0..51 for ISO weeks 1..52, not an object
+    keyed by week number: the keys would be over half the payload and the
+    ordering is already fixed.
+    """
+    m = model()
+    if grain not in m["seasonal"]:
+        raise ModelError(f"grain must be one of {', '.join(sorted(m['seasonal']))}")
+
+    rows = []
+    for unit in sorted(m["seasonal"][grain]):
+        prof = m["seasonal"][grain][unit]
+        series = [round(float(prof[w]), 1) for w in sorted(prof, key=int)]
+        if not series:
+            continue
+        peak_idx = max(range(len(series)), key=lambda i: series[i])
+        ordered = sorted(series)
+        rows.append({
+            "unit": unit,
+            "tier": tier_for(unit, grain),
+            "weeks": series,
+            "peak_week": peak_idx + 1,
+            "peak": series[peak_idx],
+            "median": round(ordered[len(ordered) // 2], 1),
+            "annual_total": round(sum(series), 1),
+        })
+
+    rows.sort(key=lambda r: r["annual_total"], reverse=True)
+    return {
+        "grain": grain,
+        "basis": "seasonal_historical",
+        "week_count": len(rows[0]["weeks"]) if rows else 0,
+        "units": rows,
+        "note": ("Bare weekly medians for sparklines. No interval and no bag "
+                 "conversion: use /forecast/seasonal-curve for a unit that "
+                 "needs either."),
+        "data_span": m["data_span"],
+    }
+
+
+def _coverage_spread(predictor: str = "seasonal", grain: str = "district",
+                     h: int = 2, level: str = DEFAULT_LEVEL) -> dict | None:
+    """The gap between the pooled claim and the worst unit, as one summary.
+
+    The model card needs to state the limitation in a sentence rather than make
+    a reader scan 64 numbers, and a hand-written sentence would go stale the
+    moment the artefact is regenerated. This derives it.
+    """
+    m = model()
+    try:
+        units = m["unit_coverage"][predictor][grain][str(h)]
+    except (KeyError, TypeError):
+        return None
+    quotable = [(v.get(level), u, v.get("mean_actual"), v.get("n"))
+                for u, v in units.items()
+                if v.get("quotable") and v.get(level) is not None]
+    if not quotable:
+        return None
+    quotable.sort()
+    worst_c, worst_u, worst_mean, worst_n = quotable[0]
+    best_c, best_u, _, _ = quotable[-1]
+    lv = float(level)
+    return {
+        "predictor": predictor, "grain": grain, "horizon_weeks": h,
+        "level": lv,
+        "units_measured": len(quotable),
+        "worst": {"unit": worst_u, "coverage": worst_c,
+                  "mean_actual": worst_mean, "n": worst_n},
+        "best": {"unit": best_u, "coverage": best_c},
+        "median": quotable[len(quotable) // 2][0],
+        "below_60pct": sum(1 for c, *_ in quotable if c < 0.60),
+        "note": ("Pooled tier coverage meets its claim; individual units do "
+                 "not, because tier thresholds are absolute and one tier spans "
+                 "a wide range of volume."),
+    }
+
+
 def model_info() -> dict:
     m = model()
     return {
@@ -377,6 +595,8 @@ def model_info() -> dict:
             "h=1, 7 endogenous features, +9.5% but p=0.322 with the margin "
             "resting on a single fold."),
         "accuracy": m["diagnostics"],
+        "unit_coverage_note": m.get("unit_coverage_note"),
+        "coverage_spread": _coverage_spread(),
         "conversion": m["conversion"],
         "excluded_demand": ["trauma", "obstetric", "surgical", "oncology",
                             "anaemia"],

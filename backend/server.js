@@ -29,6 +29,10 @@ app.use('/api/locations', require('./routes/locations'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/allocations', require('./routes/allocations'));
 app.use('/api/drives', require('./routes/drives'));
+// Roktim (Phase 6E). The module's entire backend footprint is this line, one
+// route file and one table -- it is not in the advisory path at all, only the
+// log. Deleting this line is part of removing the module.
+app.use('/api/roktim', require('./routes/roktim'));
 
 // Simple proof-of-life route: if this works, Node is successfully
 // talking to your Postgres database.

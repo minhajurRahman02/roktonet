@@ -10,6 +10,7 @@ import RequestTrackingModal from './RequestTrackingModal';
 import { getRequest, getAllocation, confirmDelivery } from '../../api/requests';
 import { getMobilizationsForRequest } from '../../api/mobilizations';
 import { relativeTime } from '../../utils/relativeTime';
+import RoktimAdvisoryCard from '../../roktim/RoktimAdvisoryCard';
 
 const FALLBACK_PATHS = ['donor_fallback', 'parallel_critical', 'scheduled_donor_mobilization'];
 const INVENTORY_PATHS = ['inventory', 'restock'];
@@ -265,6 +266,12 @@ export default function RequestDetailView({ backTo, backLabel }) {
           </div>
         )}
       </div>
+
+      {/* Roktim (Phase 6E). Sits BELOW the request card, never inside it: the
+          card above is the engine's decision, which is final, and Roktim is a
+          separate voice with no authority over it. Renders null for every
+          non-elective request and on any failure. */}
+      <RoktimAdvisoryCard request={request} />
 
       <RequestTrackingModal requestId={request.request_id} isOpen={trackingOpen} onClose={() => setTrackingOpen(false)} />
     </div>

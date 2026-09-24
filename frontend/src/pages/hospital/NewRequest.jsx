@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import FormField from '../../components/molecules/FormField';
@@ -8,9 +8,20 @@ import Button from '../../components/atoms/Button';
 import FulfillmentBadge from '../../components/atoms/FulfillmentBadge';
 import { useAuth } from '../../context/AuthContext';
 import { createRequest } from '../../api/requests';
+import RoktimAdvisoryStrip from '../../roktim/RoktimAdvisoryStrip';
+import { warmRoktim } from '../../api/roktim';
 
 export default function NewRequest() {
   const { user } = useAuth();
+
+  // Wake the forecast service while the form is being filled in, exactly as
+  // warmEngine() does for the optimization engine. Free-tier services sleep
+  // after 15 minutes and take 30-60s to wake; the person choosing a date
+  // should not be the one paying that. Fire and forget, and a no-op when
+  // VITE_ROKTIM_URL is unset.
+  useEffect(() => {
+    warmRoktim();
+  }, []);
   const [form, setForm] = useState({
     blood_type: 'O-',
     component: 'whole_blood',
@@ -107,6 +118,16 @@ export default function NewRequest() {
             onChange={(e) => updateField('needed_by_date', e.target.value)}
           />
         </FormField>
+
+        {/* Roktim (Phase 6E). Renders null unless this is an elective request
+            with a date, and null on any failure, so the form is byte-for-byte
+            what it was before whenever Roktim has nothing to say. */}
+        <RoktimAdvisoryStrip
+          urgencyTier={form.urgency_tier}
+          neededByDate={form.needed_by_date}
+          quantity={form.quantity}
+          component={form.component}
+        />
 
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
