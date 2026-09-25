@@ -42,12 +42,47 @@ router.post('/', requireAuth, requireRole('hospital', 'bank', 'admin'), async (r
     return res.status(400).json({ error: 'needed_by_date is required for elective requests' });
   }
 
+  // --- Patient identification -------------------------------------------
+  //
+  // Required for every patient request; NOT required for restock, because a
+  // blood bank restocking its own shelves has no patient. That is why the
+  // condition is on the tier rather than on the caller's role -- an admin
+  // filing a restock on a bank's behalf must not be asked for one either.
+  //
+  // These fields are DISPLAY ONLY. They exist so hospital staff can tell at
+  // a glance which units are for which patient, and they never influence a
+  // decision anywhere in the system. The guarantee is structural, not a
+  // convention: engineClient.js selects an explicit column list that does
+  // not include them, so the solver cannot read them.
+  const patient_name = (req.body.patient_name || '').trim();
+  const patient_phone = (req.body.patient_phone || '').trim();
+  const patient_note = (req.body.patient_note || '').trim();
+
+  if (urgency_tier !== 'restock') {
+    if (!patient_name) {
+      return res.status(400).json({ error: 'patient_name is required' });
+    }
+    if (!patient_phone) {
+      return res.status(400).json({ error: 'patient_phone is required' });
+    }
+    // Deliberately loose. A hard format rule on Bangladeshi numbers would
+    // reject ward extensions, an attendant's number, or a number typed with
+    // spaces -- and the cost of blocking a critical request over phone
+    // formatting is far higher than the cost of storing a messy string that
+    // a human will read anyway.
+    if (patient_name.length > 200 || patient_phone.length > 40 || patient_note.length > 1000) {
+      return res.status(400).json({ error: 'patient_name, patient_phone or patient_note is too long' });
+    }
+  }
+
   try {
     const insertResult = await pool.query(
-      `INSERT INTO requests (org_id, blood_type, component, quantity, urgency_tier, needed_by_date)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO requests (org_id, blood_type, component, quantity, urgency_tier, needed_by_date,
+                             patient_name, patient_phone, patient_note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [org_id, blood_type, component, quantity, urgency_tier, needed_by_date || null]
+      [org_id, blood_type, component, quantity, urgency_tier, needed_by_date || null,
+       patient_name || null, patient_phone || null, patient_note || null]
     );
     let request = insertResult.rows[0];
 

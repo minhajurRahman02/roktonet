@@ -28,6 +28,13 @@ export default function NewRequest() {
     quantity: 1,
     urgency_tier: 'critical',
     needed_by_date: '',
+    // Patient identification. Display only -- these never reach the
+    // optimization engine and never take part in any decision. They exist so
+    // ward staff can tell which units belong to which patient once several
+    // requests are open at once.
+    patient_name: '',
+    patient_phone: '',
+    patient_note: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -45,6 +52,17 @@ export default function NewRequest() {
       setError('needed_by_date is required for elective requests');
       return;
     }
+    // Checked here as well as on the server so a missing name costs a
+    // keystroke rather than a round trip -- the server check is the one that
+    // actually enforces it.
+    if (!form.patient_name.trim()) {
+      setError("Patient name is required so these units can be traced to the right person.");
+      return;
+    }
+    if (!form.patient_phone.trim()) {
+      setError('Patient phone is required.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -55,6 +73,9 @@ export default function NewRequest() {
         quantity: Number(form.quantity),
         urgency_tier: form.urgency_tier,
         needed_by_date: form.urgency_tier === 'elective' ? form.needed_by_date : undefined,
+        patient_name: form.patient_name.trim(),
+        patient_phone: form.patient_phone.trim(),
+        patient_note: form.patient_note.trim() || undefined,
       });
       setResult(created);
     } catch (err) {
@@ -118,6 +139,52 @@ export default function NewRequest() {
             onChange={(e) => updateField('needed_by_date', e.target.value)}
           />
         </FormField>
+
+        {/* Patient identification.
+            Placed after the clinical fields on purpose: what is needed is
+            decided first, who it is for second. Visually separated so it
+            reads as a different kind of information -- nothing in this block
+            affects matching, routing or priority. */}
+        <div className="pt-4 border-t border-gray-100 dark:border-white/10 space-y-4">
+          <div>
+            <p className="text-sm font-medium text-textprimary dark:text-textprimary-dark">Patient</p>
+            <p className="text-xs text-gray-500 dark:text-textsecondary-dark mt-0.5">
+              Recorded so your staff can match delivered units to the right person. It does not
+              affect how the request is fulfilled.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Patient name" htmlFor="patient_name">
+              <Input
+                id="patient_name"
+                value={form.patient_name}
+                onChange={(e) => updateField('patient_name', e.target.value)}
+                placeholder="Full name"
+                maxLength={200}
+              />
+            </FormField>
+            <FormField label="Patient phone" htmlFor="patient_phone">
+              <Input
+                id="patient_phone"
+                value={form.patient_phone}
+                onChange={(e) => updateField('patient_phone', e.target.value)}
+                placeholder="Contact number"
+                maxLength={40}
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Additional info (optional)" htmlFor="patient_note">
+            <Input
+              id="patient_note"
+              value={form.patient_note}
+              onChange={(e) => updateField('patient_note', e.target.value)}
+              placeholder="Ward, bed number, attending doctor"
+              maxLength={1000}
+            />
+          </FormField>
+        </div>
 
         {/* Roktim (Phase 6E). Renders null unless this is an elective request
             with a date, and null on any failure, so the form is byte-for-byte

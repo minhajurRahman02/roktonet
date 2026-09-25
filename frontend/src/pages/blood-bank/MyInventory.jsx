@@ -9,6 +9,13 @@ import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listInventory } from '../../api/inventory';
+import { useAuth } from '../../context/AuthContext';
+
+// This page serves BOTH the blood bank and the NGO. Everything it calls
+// auto-scopes to the caller's own org, so the only bank-specific thing left
+// was the hardcoded link below. NGOs hold real inventory -- every unit logged
+// at a drive is theirs -- so the page is genuinely the same view for both.
+const inventoryBase = (role) => (role === 'ngo' ? '/ngo' : '/blood-bank');
 
 const STATUS_STYLE = {
   available: 'text-elective-text bg-elective-bg dark:text-elective-dtext dark:bg-elective-dbg',
@@ -19,6 +26,8 @@ const STATUS_STYLE = {
 };
 
 export default function MyInventory() {
+  const { user } = useAuth();
+  const base = inventoryBase(user?.role);
   const [bloodTypeFilter, setBloodTypeFilter] = useState('');
   const [componentFilter, setComponentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -56,7 +65,7 @@ export default function MyInventory() {
         title="My Inventory"
         subtitle="Every unit currently under your organization."
         action={
-          <Link to="/blood-bank/inventory/add">
+          <Link to={`${base}/inventory/add`}>
             <Button variant="primary">Add inventory unit</Button>
           </Link>
         }

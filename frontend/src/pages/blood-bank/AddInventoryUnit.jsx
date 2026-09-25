@@ -8,6 +8,10 @@ import Button from '../../components/atoms/Button';
 import { useAuth } from '../../context/AuthContext';
 import { addInventoryUnit } from '../../api/inventory';
 
+// Shared by blood bank and NGO -- see the note in MyInventory.jsx. Only the
+// navigation differed; POST /api/inventory already accepted both roles.
+const inventoryBase = (role) => (role === 'ngo' ? '/ngo' : '/blood-bank');
+
 // Shelf-life reference ranges already calibrated elsewhere in this
 // project (Section 6 of project memory) -- reused here rather than
 // invented fresh, so the suggestion matches what the rest of the system
@@ -24,6 +28,7 @@ const today = new Date().toISOString().slice(0, 10);
 
 export default function AddInventoryUnit() {
   const { user } = useAuth();
+  const base = inventoryBase(user?.role);
   const navigate = useNavigate();
   const [form, setForm] = useState({
     blood_type: '',
@@ -68,7 +73,7 @@ export default function AddInventoryUnit() {
         collection_date: form.collection_date,
         expiry_date: form.expiry_date,
       });
-      navigate('/blood-bank/inventory');
+      navigate(`${base}/inventory`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -78,7 +83,7 @@ export default function AddInventoryUnit() {
 
   return (
     <div className="p-6">
-      <Link to="/blood-bank/inventory" className="text-sm text-primary dark:text-textprimary-dark mb-4 inline-block">
+      <Link to={`${base}/inventory`} className="text-sm text-primary dark:text-textprimary-dark mb-4 inline-block">
         ← Back to My Inventory
       </Link>
       <PageHeader title="Add Inventory Unit" subtitle="Log a new unit into your organization's stock." />

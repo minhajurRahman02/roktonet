@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
-import { Phone, Mail, MapPin, Droplet } from 'lucide-react';
+import { Phone, Mail, MapPin, Droplet, User } from 'lucide-react';
 import LoadingState from '../molecules/LoadingState';
 import ErrorState from '../molecules/ErrorState';
 import UrgencyBadge from '../atoms/UrgencyBadge';
@@ -147,6 +147,51 @@ export default function RequestDetailView({ backTo, backLabel }) {
             <p className="font-medium dark:text-textprimary-dark">{relativeTime(request.created_at)}</p>
           </div>
         </div>
+
+        {/* Patient identification.
+            Only ever populated for patient requests -- a blood bank's restock
+            request has no patient, so this block simply does not render for
+            one, which is why it is guarded on the field rather than on the
+            urgency tier.
+
+            This view is reachable only by the requesting organisation and by
+            admin (ownership is checked in GET /api/requests/:id), so a
+            supplying bank or NGO never reaches it. Their own Outgoing
+            Allocations page is served by a query that does not select these
+            columns at all. */}
+        {request.patient_name && (
+          <div className="border-t border-gray-100 dark:border-white/10 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <User size={14} className="text-gray-400" />
+              <p className="text-sm font-medium dark:text-textprimary-dark">Patient</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Name</p>
+                <p className="font-medium dark:text-textprimary-dark">{request.patient_name}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Phone</p>
+                {request.patient_phone ? (
+                  <a
+                    href={`tel:${request.patient_phone}`}
+                    className="font-medium text-primary dark:text-textprimary-dark hover:underline"
+                  >
+                    {request.patient_phone}
+                  </a>
+                ) : (
+                  <p className="text-gray-400">Not recorded</p>
+                )}
+              </div>
+              {request.patient_note && (
+                <div className="col-span-2">
+                  <p className="text-xs text-gray-400 mb-1">Additional info</p>
+                  <p className="dark:text-textprimary-dark">{request.patient_note}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {request.needed_by_date && (
           <div className="border-t border-gray-100 dark:border-white/10 p-5 text-sm">

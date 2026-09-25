@@ -76,6 +76,12 @@ export default function AdminOrganizations() {
     e.preventDefault(); setBusy(true); setErr('');
     try {
       if (modal === 'create') {
+        // Thana is mandatory now. It is not cosmetic: donorFallback.js ranks
+        // candidate donors same-thana before same-district, and it is half of
+        // the uniqueness rule (same name and district is allowed only when
+        // the thana differs). An org without one silently never wins a
+        // proximity tie-break.
+        if (!form.thana.trim()) { setErr('Thana is required.'); return; }
         const created = await createOrganization(form);
         setNotice(`${created.name} created. Invite code: ${created.invite_code}`);
       } else {
@@ -146,7 +152,7 @@ export default function AdminOrganizations() {
               send a mismatched pair to resolveThana, which would fail to
               match and store a null thana_id without saying so. */}
           <div><label className="text-xs text-gray-500">District</label><Select className="mt-1" required value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value, thana: '' })}><option value="">Select…</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select></div>
-          <div><label className="text-xs text-gray-500">Thana <span className="text-gray-400">(optional)</span></label><DatalistInput id="org-thana" className="mt-1" value={form.thana} onChange={(e) => setForm({ ...form, thana: e.target.value })} options={thanas} disabled={!form.district} placeholder={form.district ? 'Start typing…' : 'Pick a district first'} /></div>
+          <div><label className="text-xs text-gray-500">Thana</label><DatalistInput id="org-thana" required className="mt-1" value={form.thana} onChange={(e) => setForm({ ...form, thana: e.target.value })} options={thanas} disabled={!form.district} placeholder={form.district ? 'Start typing…' : 'Pick a district first'} /></div>
           <div><label className="text-xs text-gray-500">Contact phone</label><Input className="mt-1" value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></div>
           <div className="col-span-2"><label className="text-xs text-gray-500">Contact email</label><Input className="mt-1" type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
           {modal !== 'create' && modal && <div className="col-span-2"><label className="text-xs text-gray-500">Invite code</label><div className="mt-1"><InviteCode code={modal.invite_code} /></div></div>}

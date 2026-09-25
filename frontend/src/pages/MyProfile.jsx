@@ -85,6 +85,17 @@ export default function MyProfile() {
       return;
     }
 
+    // thana is required for organizations now, not optional.
+    //
+    // The backend's PATCH sets thana unconditionally when a location update
+    // is sent, so omitting it does not leave the old value alone -- it wipes
+    // it. Blocking here means an org editing its phone number cannot
+    // silently drop itself back to district-level precision.
+    if (isOrgRole && !org?.thana?.trim()) {
+      setSaveError('Thana is required.');
+      return;
+    }
+
     setSaving(true);
     setSaveMessage('');
     setSaveError('');
@@ -107,7 +118,7 @@ export default function MyProfile() {
         // as before), but district is always sent once we're here --
         // it's required, already validated above, and thana rides along
         // with it (optional, may legitimately be empty).
-        const orgUpdate = { district: org.district, thana: org.thana || undefined };
+        const orgUpdate = { district: org.district, thana: org.thana };
         if (org.contact_phone) orgUpdate.contact_phone = org.contact_phone;
         if (org.contact_email) orgUpdate.contact_email = org.contact_email;
         tasks.push(updateOrganization(user.org_id, orgUpdate));
@@ -259,7 +270,7 @@ export default function MyProfile() {
                   options={thanas}
                   autoComplete="off"
                 />
-                <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Optional.</p>
+                <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Required. Used to match nearby donors to your requests.</p>
               </FormField>
             </div>
           </div>

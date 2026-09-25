@@ -103,8 +103,23 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   const { name, org_type, district } = req.body;
 
+  // thana is now REQUIRED at creation, where it used to be optional.
+  //
+  // It is not cosmetic. donorFallback.js ranks candidate donors by
+  // same-thana before same-district, and engine.py's distance term compares
+  // organizations to each other. An organization with no thana silently
+  // loses the finer half of both comparisons and simply never wins a
+  // proximity tie-break -- with nothing anywhere reporting that it is being
+  // matched less precisely than its neighbours.
+  //
+  // It is also half of the uniqueness rule below: two organizations sharing
+  // a name and district are distinguished by thana, so a missing thana
+  // makes that rule unenforceable for exactly the rows that need it most.
   if (!name || !org_type || !district) {
     return res.status(400).json({ error: 'name, org_type, and district are all required' });
+  }
+  if (!req.body.thana || !String(req.body.thana).trim()) {
+    return res.status(400).json({ error: 'thana is required' });
   }
 
   if (!['hospital', 'blood_bank', 'ngo'].includes(org_type)) {
@@ -118,12 +133,63 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
     // this, API-created orgs had a NULL code and were unjoinable.
     const inviteCode = crypto.randomBytes(4).toString('hex').toUpperCase();
     const { contact_phone, contact_email, thana } = req.body;
-    const resolved = thana ? await resolveThana(thana, district) : null;
+
+    // --- Uniqueness, checked here for a readable error -------------------
+    //
+    // The real guarantee is the pair of unique indexes in
+    // migration_refinements.sql. These checks exist so an admin gets
+    // "Popular Diagnostic Centre already exists in Dhaka, Mirpur Model"
+    // instead of a raw Postgres constraint violation. They are a courtesy,
+    // not the enforcement -- a check-then-insert has a race between the two
+    // statements, which is exactly what the index closes.
+    //
+    // Case-insensitive on both, because two people typing the same real
+    // organization in different cases have created one duplicate, not two
+    // organizations.
+    const clash = await pool.query(
+      `SELECT name, district, thana FROM organizations
+        WHERE lower(name) = lower($1) AND district = $2
+          AND COALESCE(thana, '') = COALESCE($3, '')
+        LIMIT 1`,
+      [name.trim(), district, thana.trim()]
+    );
+    if (clash.rows.length > 0) {
+      return res.status(409).json({
+        error: `An organization named "${clash.rows[0].name}" already exists in ${district}, ${clash.rows[0].thana}. Same name is fine in a different district, or a different thana within this one.`,
+      });
+    }
+
+    if (contact_email && contact_email.trim()) {
+      const emailClash = await pool.query(
+        'SELECT name FROM organizations WHERE lower(contact_email) = lower($1) LIMIT 1',
+        [contact_email.trim()]
+      );
+      if (emailClash.rows.length > 0) {
+        return res.status(409).json({
+          error: `That contact email is already used by "${emailClash.rows[0].name}". Each organization needs its own address.`,
+        });
+      }
+    }
+
+    const resolved = await resolveThana(thana.trim(), district);
+
+    // Stored TRIMMED, and this matters more than it looks.
+    //
+    // The clash check above compares trimmed input, but the unique index
+    // compares stored values. Insert "  Popular Diagnostic Centre  " raw and
+    // the check correctly finds no clash while the index sees a string that
+    // genuinely differs from "Popular Diagnostic Centre" -- so two rows that
+    // are visually identical both survive, and the constraint that was meant
+    // to prevent exactly that never fires. Normalising on write is what keeps
+    // the check and the index talking about the same thing.
     const result = await pool.query(
       `INSERT INTO organizations (name, org_type, district, thana, thana_id, contact_phone, contact_email, invite_code)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING ${SAFE_COLUMNS}, invite_code`,
-      [name, org_type, district, thana || null, resolved ? resolved.thana_id : null, contact_phone || null, contact_email || null, inviteCode]
+      [name.trim(), org_type, district, thana.trim(), resolved ? resolved.thana_id : null,
+       contact_phone ? contact_phone.trim() : null,
+       contact_email ? contact_email.trim() : null,
+       inviteCode]
     );
     await logAdminAction(req.user.user_id, 'org_created', {
       targetType: 'organization', targetId: result.rows[0].org_id, details: { name, org_type, district },
@@ -153,14 +219,23 @@ router.patch('/:id', requireAuth, async (req, res) => {
     let result;
     if (district !== undefined) {
       // district is NOT NULL at the schema level -- an update that
-      // touches location at all must include a real district; thana
-      // stays optional (many areas are outside the metro-police thana
-      // coverage added during the location-precision work, see
-      // locationResolver.js).
+      // touches location at all must include a real district.
       if (!district) {
         return res.status(400).json({ error: 'district is required' });
       }
-      const resolved = thana ? await resolveThana(thana, district) : null;
+      // thana is now required here too, where it used to be optional.
+      //
+      // Not for symmetry's sake: this UPDATE sets thana unconditionally, so
+      // leaving it out does not preserve the existing value, it CLEARS it.
+      // With thana mandatory at creation, an org editing its phone number
+      // and omitting thana would have quietly dropped back to
+      // district-level precision -- losing its place in donorFallback.js's
+      // same-thana ranking and punching a hole in the uniqueness rule, with
+      // nothing reporting either.
+      if (!thana || !String(thana).trim()) {
+        return res.status(400).json({ error: 'thana is required when updating location' });
+      }
+      const resolved = await resolveThana(String(thana).trim(), district);
       result = await pool.query(
         `UPDATE organizations SET
            contact_phone = COALESCE($1, contact_phone),
@@ -170,7 +245,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
            thana_id = $5
          WHERE org_id = $6
          RETURNING ${SAFE_COLUMNS}`,
-        [contact_phone, contact_email, district, thana || null, resolved ? resolved.thana_id : null, req.params.id]
+        [contact_phone, contact_email, district, String(thana).trim(), resolved ? resolved.thana_id : null, req.params.id]
       );
     } else {
       result = await pool.query(

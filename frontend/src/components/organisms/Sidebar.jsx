@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, PackagePlus, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download, Sparkles } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download, Sparkles, ClipboardList } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -11,6 +11,9 @@ const NAV_BY_ROLE = {
   hospital: [
     { to: '/hospital', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/hospital/requests', label: 'My Requests', icon: ListChecks },
+    // Cross-request view of every unit allocated to this hospital, by
+    // patient. Staff look for a person, not a request ID.
+    { to: '/hospital/allocations', label: 'Allocation Log', icon: ClipboardList },
   ],
   admin: [
     { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -33,15 +36,24 @@ const NAV_BY_ROLE = {
     { to: '/blood-bank/allocations', label: 'Outgoing Allocations', icon: Truck },
     { to: '/blood-bank/restock', label: 'Restock', icon: RefreshCw },
   ],
-  // ngo/donor don't have real dashboards yet (Phase 7.8) -- they currently
-  // land in the shared hospital shell as a placeholder, so give them a
-  // minimal, honest nav rather than pretending they have Hospital's
-  // features.
+  // NGOs hold real inventory: every unit logged at a blood drive is an
+  // inventory_units row owned by that NGO, and the optimization engine
+  // allocates from it exactly as it does from a blood bank's shelves. Until
+  // now the NGO had no way to see either side of that -- what stock it holds,
+  // or which requests its units went to -- even though both were happening.
+  //
+  // My Inventory and Outgoing Allocations are the SAME components the blood
+  // bank uses, mounted at NGO routes. Both call endpoints that auto-scope to
+  // the caller's own org, so nothing about them is bank-specific; duplicating
+  // them would have meant two copies of the dispatch grouping logic to keep
+  // in sync.
   ngo: [
     { to: '/ngo', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/ngo/donors', label: 'My Donors', icon: Users },
     { to: '/ngo/drives', label: 'My Blood Drives', icon: Heart },
-    { to: '/ngo/mobilizations', label: 'Mobilizations', icon: Truck },
+    { to: '/ngo/inventory', label: 'My Inventory', icon: Droplets },
+    { to: '/ngo/allocations', label: 'Outgoing Allocations', icon: Truck },
+    { to: '/ngo/mobilizations', label: 'Mobilizations', icon: Megaphone },
   ],
   // donor's nav is computed dynamically below (getNavItems), not listed
   // here statically -- "My NGO" vs "Find an NGO" depends on whether the

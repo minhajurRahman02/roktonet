@@ -149,6 +149,20 @@ async function runAllocationBatch() {
   return withBatchLock(async () => {
     // "Pending" = hasn't been through the engine yet.
     const requestsResult = await pool.query(
+      // THE COLUMN LIST IS EXPLICIT ON PURPOSE -- DO NOT CHANGE IT TO r.* .
+      //
+      // requests also carries patient_name, patient_phone and patient_note.
+      // Those are display-only fields that exist so hospital staff can track
+      // which units went to which patient, and the project's commitment is
+      // that they never influence an allocation decision.
+      //
+      // That commitment is kept structurally rather than by discipline: this
+      // list is the only path from the requests table into the solver, so if
+      // the columns are not named here the engine cannot read them, and no
+      // amount of later editing inside engine.py could make it depend on
+      // them. Widening this to SELECT * would silently hand patient
+      // identifiers to the optimizer and break the guarantee without any
+      // test failing.
       `SELECT request_id, org_id, blood_type, component, quantity, urgency_tier
        FROM requests WHERE fulfillment_path IS NULL AND cancelled_at IS NULL`
     );

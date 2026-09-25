@@ -37,6 +37,22 @@ Supabase SQL Editor.
 | 13 | `migration_dedupe_allocations.sql` | Repairs allocation race damage; `UNIQUE (request_id, unit_id)` |
 | 14 | `migration_drop_eligibility_status.sql` | Drops the stale `donors.eligibility_status` column |
 | 15 | `seed_data.sql` | Demo data. Optional, and only on a database you are happy to fill with fake rows |
+| 16 | `migration_roktim.sql` | `roktim_advisories` table (Phase 6E, the Roktim advisory log) |
+| 17 | `migration_refinements.sql` | Patient fields on `requests`; organization uniqueness indexes |
+
+Step 16 has **no ordering constraint at all**. It creates one table that
+references nothing else, by design: the Roktim module has to be removable by
+dropping one table, one route file and one frontend folder, and a foreign key
+into `requests` would have broken that. It can run any time after step 1, or be
+skipped entirely if you are not deploying Roktim.
+
+Step 17 must run **after step 1** (it alters `requests` and `organizations`) and
+has no other ordering constraint. It contains one thing you must not run blind:
+two SELECTs that list organizations which would violate the new uniqueness
+indexes. Read their output before running the CREATE INDEX statements beneath
+them. If either returns rows, index creation will fail against existing data,
+and you either fix those organizations first or skip the indexes and rely on the
+route-level checks alone. The file says this inline as well.
 
 ## Real ordering constraints
 

@@ -8,6 +8,7 @@ import HospitalOverview from './pages/hospital/Overview';
 import MyRequests from './pages/hospital/MyRequests';
 import NewRequest from './pages/hospital/NewRequest';
 import RequestDetail from './pages/hospital/RequestDetail';
+import HospitalAllocationLog from './pages/hospital/AllocationLog';
 import BloodBankOverview from './pages/blood-bank/Overview';
 import MyInventory from './pages/blood-bank/MyInventory';
 import AddInventoryUnit from './pages/blood-bank/AddInventoryUnit';
@@ -110,6 +111,18 @@ export default function App() {
                 <RoleRoute allowedRoles={HOSPITAL_SHELL_ROLES}>
                   <AppShell crumbs={['Hospital', 'My Requests']}>
                     <MyRequests />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hospital/allocations"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={HOSPITAL_SHELL_ROLES}>
+                  <AppShell crumbs={['Hospital', 'Allocation Log']}>
+                    <HospitalAllocationLog />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>
@@ -330,6 +343,48 @@ export default function App() {
                 <RoleRoute allowedRoles={['ngo']}>
                   <AppShell crumbs={['NGO', 'My Blood Drives', 'Log']}>
                     <DriveLog />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          {/* NGOs hold real inventory and the engine allocates from it, so
+              they get the same two views the blood bank has. These are the
+              SAME components -- both call endpoints that auto-scope to the
+              caller's own org, so there is nothing bank-specific in them and
+              a second copy would only be a second place for the dispatch
+              grouping logic to drift. */}
+          <Route
+            path="/ngo/inventory"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Inventory']}>
+                    <MyInventory />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/inventory/add"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'My Inventory', 'Add Unit']}>
+                    <AddInventoryUnit />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ngo/allocations"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'Outgoing Allocations']}>
+                    <OutgoingAllocations />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>
