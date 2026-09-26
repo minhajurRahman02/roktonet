@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListChecks, Droplets, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download, Sparkles, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Droplets, Truck, RefreshCw, Users, Heart, Building2, Search, ChevronLeft, UserCog, BarChart3, Megaphone, ScrollText, Download, Sparkles, ClipboardList, CalendarDays } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // Each role gets its OWN nav list -- previously every role saw the same
@@ -51,6 +51,9 @@ const NAV_BY_ROLE = {
     { to: '/ngo', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/ngo/donors', label: 'My Donors', icon: Users },
     { to: '/ngo/drives', label: 'My Blood Drives', icon: Heart },
+    // Directly under My Blood Drives: it is the same information seen
+    // a different way, and the two get used together when planning.
+    { to: '/ngo/scheduler', label: 'Scheduler', icon: CalendarDays },
     { to: '/ngo/inventory', label: 'My Inventory', icon: Droplets },
     { to: '/ngo/allocations', label: 'Outgoing Allocations', icon: Truck },
     { to: '/ngo/mobilizations', label: 'Mobilizations', icon: Megaphone },
@@ -72,6 +75,9 @@ function getNavItems(user) {
       // NGO" would undersell it for a donor who does.
       { to: '/donor/ngo', label: user.org_id ? 'My NGO' : 'Find an NGO', icon: Building2 },
       { to: '/donor/browse', label: 'Browse Drives', icon: Search },
+      // Read-only month view of the same drives Browse lists. Donors
+      // cannot sign up or leave notes, so the cells are not clickable.
+      { to: '/donor/calendar', label: 'Drive Calendar', icon: CalendarDays },
     ];
   }
   return NAV_BY_ROLE[user.role] || [];

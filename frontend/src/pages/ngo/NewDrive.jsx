@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import FormField from '../../components/molecules/FormField';
 import Input from '../../components/atoms/Input';
@@ -10,7 +10,19 @@ import { createDrive } from '../../api/drives';
 export default function NewDrive() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ title: '', location: '', drive_date: '', target_units: '' });
+  // The scheduler links here as /ngo/drives/new?date=YYYY-MM-DD after
+  // someone picks a date on the calendar. Read once as the initial
+  // state rather than in an effect, so the field is filled on the very
+  // first render and never flickers from empty to filled.
+  //
+  // Validated against the same shape the server accepts, because a
+  // hand-edited query string should not be able to put arbitrary text
+  // into a date input, where it would silently fail to display.
+  const [searchParams] = useSearchParams();
+  const presetDate = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('date') || '')
+    ? searchParams.get('date')
+    : '';
+  const [form, setForm] = useState({ title: '', location: '', drive_date: presetDate, target_units: '' });
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 

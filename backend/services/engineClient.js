@@ -5,8 +5,23 @@
 const pool = require('../db');
 const { triggerDonorFallback } = require('./donorFallback');
 const { logRequestEvent } = require('./requestEvents');
+const { SUPPLIER_ORG_TYPES } = require('../constants/supplierOrgTypes');
+const { notifyOrg } = require('./notificationService');
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://127.0.0.1:5001';
+
+// How close to its needed_by_date an elective request has to be before
+// the system will call donors for it.
+//
+// Elective means planned surgery, often weeks out. Inviting donors the
+// moment such a request is filed would burn through the donor pool and
+// their annual donation caps for blood that is not needed yet, and the
+// cooldown it starts would make those donors unavailable for the
+// critical requests that arrive in the meantime. Outside this window an
+// elective request keeps whatever inventory it was given and waits.
+const ELECTIVE_MOBILIZATION_WINDOW_DAYS = Number(
+  process.env.ELECTIVE_MOBILIZATION_WINDOW_DAYS || 7
+);
 
 // ---------------------------------------------------------------------
 // 7.7a: single-flight batching.
@@ -108,6 +123,75 @@ async function fetchWithColdStartRetry(url, options, attempts = 3, delaysMs = [5
  * connection closes and Postgres drops the lock automatically, so a crash
  * cannot wedge the system.
  */
+/**
+ * True when an elective request is close enough to its date to justify
+ * calling donors. A request with no date is treated as due now, which is
+ * the safe reading: an elective request is supposed to carry a date, and
+ * if one somehow lacks it, waiting forever is worse than acting early.
+ */
+function isWithinMobilizationWindow(neededByDate) {
+  if (!neededByDate) return true;
+  const due = new Date(neededByDate);
+  if (Number.isNaN(due.getTime())) return true;
+  const days = Math.ceil((due.getTime() - Date.now()) / 86400000);
+  return days <= ELECTIVE_MOBILIZATION_WINDOW_DAYS;
+}
+
+/**
+ * Tells each supplying organization that the engine has reserved units of
+ * theirs and they need to dispatch.
+ *
+ * Nothing did this before. The engine reserved units and wrote allocation
+ * records, and the bank or NGO holding them found out only by opening
+ * its Outgoing Allocations page unprompted. Every unit in the system has
+ * to pass through a human pressing Dispatch, so a dispatch step nobody is
+ * told about is a dispatch step that does not happen.
+ *
+ * One notification per organization per batch rather than one per unit:
+ * a bank that just had nine units taken wants to know that, not to
+ * receive nine messages saying the same thing.
+ */
+async function notifySuppliers(applied) {
+  if (applied.length === 0) return;
+  try {
+    const { rows } = await pool.query(
+      `SELECT iu.org_id, COUNT(*)::int AS units,
+              COUNT(DISTINCT ar.request_id)::int AS requests,
+              MAX(r.urgency_tier) FILTER (WHERE r.urgency_tier = 'critical') AS has_critical,
+              MAX(r.urgency_tier) FILTER (WHERE r.urgency_tier = 'urgent')   AS has_urgent
+         FROM allocation_records ar
+         JOIN inventory_units iu ON iu.unit_id = ar.unit_id
+         JOIN requests r         ON r.request_id = ar.request_id
+        WHERE ar.unit_id = ANY($1)
+        GROUP BY iu.org_id`,
+      [applied.map((a) => a.unit_id)]
+    );
+
+    for (const row of rows) {
+      // Urgency here decides the email channel, exactly as it does
+      // everywhere else. A critical request in the batch makes the whole
+      // notification urgent, because that is the unit that needs moving
+      // first.
+      const tier = row.has_critical || row.has_urgent || null;
+      const unitWord = row.units === 1 ? 'unit' : 'units';
+      const reqWord = row.requests === 1 ? 'request' : 'requests';
+      await notifyOrg(
+        row.org_id,
+        'dispatch_needed',
+        `${row.units} ${unitWord} of your stock have been matched to ${row.requests} ${reqWord} `
+        + 'and are waiting for you to dispatch them.',
+        null,
+        tier
+      );
+    }
+  } catch (err) {
+    // Same reasoning as notifyOrg's own email catch: the allocation is
+    // already durable and correct. A failed notification must not roll
+    // back or fail a batch that did its job.
+    console.error('[engineClient] supplier notification failed:', err.message);
+  }
+}
+
 async function withBatchLock(work) {
   const lockClient = await pool.connect();
   let acquired = false;
@@ -147,6 +231,26 @@ async function withBatchLock(work) {
 
 async function runAllocationBatch() {
   return withBatchLock(async () => {
+    // Reconcile first: a request whose allocations already cover it in
+    // full, but whose fulfillment_path was never set.
+    //
+    // This closes a hole the remaining-quantity query would otherwise
+    // open. Such a request has a remaining need of zero, so the pending
+    // query below skips it, so nothing would ever resolve it and it
+    // would sit "pending" forever while holding units. The old elective
+    // bug produced exactly this shape, and so would any future crash
+    // between the INSERT into allocation_records and the UPDATE of
+    // fulfillment_path.
+    //
+    // It is a no-op on a healthy database.
+    await pool.query(
+      `UPDATE requests r SET fulfillment_path = 'inventory'
+        WHERE r.fulfillment_path IS NULL
+          AND r.cancelled_at IS NULL
+          AND (SELECT COUNT(DISTINCT ar.unit_id) FROM allocation_records ar
+                WHERE ar.request_id = r.request_id) >= r.quantity`
+    );
+
     // "Pending" = hasn't been through the engine yet.
     const requestsResult = await pool.query(
       // THE COLUMN LIST IS EXPLICIT ON PURPOSE -- DO NOT CHANGE IT TO r.* .
@@ -163,21 +267,82 @@ async function runAllocationBatch() {
       // them. Widening this to SELECT * would silently hand patient
       // identifiers to the optimizer and break the guarantee without any
       // test failing.
-      `SELECT request_id, org_id, blood_type, component, quantity, urgency_tier
-       FROM requests WHERE fulfillment_path IS NULL AND cancelled_at IS NULL`
+      //
+      // QUANTITY IS THE REMAINING NEED, NOT THE ORIGINAL ASK.
+      //
+      // This is the fix for requests showing "allocated: 3/2". Previously
+      // this selected r.quantity, so a request that came back through the
+      // batch a second time asked for its full original quantity again,
+      // while its own already-allocated units were excluded from the
+      // available pool for being 'reserved'. The engine therefore picked
+      // DIFFERENT units, and the (request_id, unit_id) unique constraint
+      // cannot catch a different unit. Each pass added more.
+      //
+      // Subtracting what is already allocated means an over-allocation is
+      // arithmetically impossible, whatever route takes a request back
+      // into the pool. That matters more than fixing the one path that
+      // caused it, because it holds for paths nobody has thought of yet.
+      //
+      // THE ::int CASTS ARE REQUIRED, NOT TIDINESS. COUNT() returns
+      // bigint, and node-pg hands bigint to JavaScript as a STRING to
+      // avoid silent precision loss. Without the cast, quantity arrives
+      // at the Python solver as "2" rather than 2, and PuLP fails with
+      // "maximum recursion depth exceeded in comparison" while building
+      // the constraint, which looks nothing like a type error and takes
+      // down every allocation in the batch.
+      `SELECT r.request_id, r.org_id, r.blood_type, r.component,
+              GREATEST(r.quantity - COALESCE(a.allocated, 0), 0)::int AS quantity,
+              r.quantity::int AS original_quantity,
+              r.urgency_tier, r.needed_by_date
+       FROM requests r
+       LEFT JOIN (
+         SELECT request_id, COUNT(DISTINCT unit_id) AS allocated
+         FROM allocation_records GROUP BY request_id
+       ) a ON a.request_id = r.request_id
+       WHERE r.cancelled_at IS NULL
+         AND (
+           r.fulfillment_path IS NULL
+           -- An elective request held for a future date comes back into
+           -- the pool once that date is near, to top up its reservation
+           -- and, if still short, mobilize donors.
+           OR (r.fulfillment_path = 'scheduled_reservation'
+               AND r.urgency_tier = 'elective'
+               AND r.needed_by_date IS NOT NULL
+               AND r.needed_by_date <= CURRENT_DATE + $1::int)
+         )
+         AND GREATEST(r.quantity - COALESCE(a.allocated, 0), 0) > 0`,
+      [ELECTIVE_MOBILIZATION_WINDOW_DAYS]
     );
 
     if (requestsResult.rows.length === 0) {
       return { message: 'No pending requests to process.' };
     }
 
-    // "Eligible stock" = currently available. Convert expiry_date into
+    // "Eligible stock" = currently available, AND held by an organization
+    // that is allowed to supply blood. Convert expiry_date into
     // days_until_expiry here, since that's the shape the engine expects
     // (Postgres can subtract two dates directly and get a day count).
+    //
+    // THE org_type JOIN IS LOAD-BEARING. Hospitals consume blood, they do
+    // not supply it: a hospital cannot fulfil another hospital's request,
+    // and a hospital's own blood bank is a separately registered
+    // organization with org_type 'blood_bank'. Before this filter existed
+    // the engine treated hospital stock as allocatable and routinely
+    // sourced from it.
+    //
+    // Filtering here rather than in engine.py is deliberate. The engine
+    // solves whatever inventory it is handed and should stay a pure
+    // optimizer; eligibility is a domain rule, so it belongs on the
+    // database side of the wire where it cannot be bypassed by calling
+    // the engine directly.
     const inventoryResult = await pool.query(
-      `SELECT unit_id, org_id, blood_type, component,
-              (expiry_date - CURRENT_DATE) AS days_until_expiry
-       FROM inventory_units WHERE status = 'available'`
+      `SELECT iu.unit_id, iu.org_id, iu.blood_type, iu.component,
+              (iu.expiry_date - CURRENT_DATE) AS days_until_expiry
+       FROM inventory_units iu
+       JOIN organizations o ON o.org_id = iu.org_id
+       WHERE iu.status = 'available'
+         AND o.org_type = ANY($1)`,
+      [SUPPLIER_ORG_TYPES]
     );
 
     const orgsResult = await pool.query(`SELECT org_id, district FROM organizations`);
@@ -266,8 +431,14 @@ async function runAllocationBatch() {
 
         if (fullyCovered) {
           await client.query(
+            // 'scheduled_reservation' is allowed to advance to 'inventory'
+            // here: that is an elective request whose date came near and
+            // whose remaining units have now been found. Any other
+            // non-null path means something else already resolved this
+            // request and must not be overwritten.
             `UPDATE requests SET fulfillment_path = 'inventory'
-             WHERE request_id = $1 AND fulfillment_path IS NULL AND cancelled_at IS NULL`,
+             WHERE request_id = $1 AND cancelled_at IS NULL
+               AND (fulfillment_path IS NULL OR fulfillment_path = 'scheduled_reservation')`,
             [req.request_id]
           );
           resolved.push({ request_id: req.request_id, units: got });
@@ -292,15 +463,52 @@ async function runAllocationBatch() {
       }
 
       // Requests still short escalate to the Section 7A donor-fallback
-      // flow -- except elective, which needs the proper 7B
-      // feasibility+risk-check pipeline (depends on the forecasting model,
-      // not built yet -- future phase). Elective shortfalls are left
-      // untouched for now.
+      // flow. Elective requests take the same route, but only once their
+      // needed_by_date is close; further out they are held instead.
+      //
+      // Elective used to be skipped here entirely, and that skip was the
+      // bug. Nothing else set fulfillment_path for an elective request,
+      // so it stayed NULL, stayed pending, and came back every 60 seconds
+      // forever, accumulating allocations and leaving units reserved
+      // against a request that could never resolve. Every path out of
+      // this loop now sets fulfillment_path to something.
       const resolvedIds = new Set(resolved.map((r) => r.request_id));
       const fallbackResults = [];
+      const held = [];
 
       for (const req of requestsResult.rows) {
-        if (resolvedIds.has(req.request_id) || req.urgency_tier === 'elective') continue;
+        if (resolvedIds.has(req.request_id)) continue;
+
+        if (req.urgency_tier === 'elective' && !isWithinMobilizationWindow(req.needed_by_date)) {
+          // Hold it. The partial allocation stands, the units stay
+          // reserved for this patient, and the request drops out of the
+          // pending pool until its date comes near.
+          // pool, not client: the transaction above is already committed,
+          // and this belongs with the other post-commit bookkeeping.
+          await pool.query(
+            `UPDATE requests SET fulfillment_path = 'scheduled_reservation'
+             WHERE request_id = $1 AND fulfillment_path IS NULL AND cancelled_at IS NULL`,
+            [req.request_id]
+          );
+          const reserved = appliedByRequest.get(req.request_id) || 0;
+          const stillNeeded = req.quantity - reserved;
+          await logRequestEvent(
+            req.request_id,
+            'engine_shortfall',
+            reserved > 0
+              ? `Reserved ${reserved} unit(s) and holding them for the scheduled date. `
+                + `${stillNeeded} still to find, and donors will be contacted closer to the date.`
+              : 'Nothing available to reserve yet. Donors will be contacted closer to the scheduled date.',
+            {
+              shortfall: stillNeeded,
+              reserved,
+              needed_by_date: req.needed_by_date,
+              mobilization_window_days: ELECTIVE_MOBILIZATION_WINDOW_DAYS,
+            }
+          );
+          held.push({ request_id: req.request_id, reserved, still_needed: stillNeeded });
+          continue;
+        }
 
         await logRequestEvent(
           req.request_id,
@@ -313,9 +521,15 @@ async function runAllocationBatch() {
         fallbackResults.push(outcome);
       }
 
+      await notifySuppliers(applied);
+
       return {
         processed: requestsResult.rows.length,
         assignments: applied.length,
+        // Elective requests parked until their date comes near. Surfaced
+        // so the admin batch result distinguishes "held on purpose" from
+        // "could not be filled".
+        held_for_schedule: held,
         // Surfaced rather than swallowed: a non-empty list means the
         // engine's answer was partly out of date by the time it arrived,
         // which is worth seeing in the admin batch result.

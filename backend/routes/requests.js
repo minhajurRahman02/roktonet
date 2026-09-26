@@ -484,7 +484,17 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), async (req, res) =
       targetType: 'request', targetId: request.request_id,
       details: { reason, released_units: released.rows.length, urgency_tier: request.urgency_tier, previous_path: request.fulfillment_path },
     });
-    await notifyOrg(request.org_id, 'request_cancelled', 'One of your requests was cancelled by an administrator.', request.request_id);
+    // urgency_tier passed so this follows the same channel rule as every
+    // other notification. It was omitted before, which meant cancelling a
+    // critical request, the one case where the hospital most needs to
+    // know immediately, sent in-app only and never emailed.
+    await notifyOrg(
+      request.org_id,
+      'request_cancelled',
+      'One of your requests was cancelled by an administrator.',
+      request.request_id,
+      request.urgency_tier
+    );
 
     res.json({ request_id: request.request_id, cancelled: true, released_units: released.rows.length });
   } catch (err) {

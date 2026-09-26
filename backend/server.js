@@ -29,6 +29,10 @@ app.use('/api/locations', require('./routes/locations'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/allocations', require('./routes/allocations'));
 app.use('/api/drives', require('./routes/drives'));
+// Calendar notes for the NGO scheduler. Its own mount rather than a
+// branch of /api/drives, because a note is attached to a date, not to
+// a drive, and most notes sit on dates that have no drive.
+app.use('/api/drive-notes', require('./routes/driveNotes'));
 // Roktim (Phase 6E). The module's entire backend footprint is this line, one
 // route file and one table -- it is not in the advisory path at all, only the
 // log. Deleting this line is part of removing the module.

@@ -38,4 +38,44 @@ async function notifyOrg(orgId, type, message, relatedRequestId = null, urgencyT
   }
 }
 
-module.exports = { notifyOrg };
+/**
+ * Notifies one person directly, by user_id rather than by organization.
+ *
+ * WHY THIS HAD TO EXIST
+ *
+ * notifyOrg addresses an organization, and a donor's users row has
+ * org_id = NULL. Donors were therefore unreachable by every notification
+ * in the system except an admin broadcast. That was not a cosmetic gap:
+ * donor fallback invites donors by writing donor_mobilizations rows, and
+ * the donor was never told, so the feature depended on a message that
+ * did not exist.
+ *
+ * The notifications table and GET /api/notifications already handle
+ * user-addressed rows, because that is how broadcasts are delivered.
+ * This just uses the same shape without pretending to be a broadcast.
+ *
+ * The email rule here is deliberately NOT the critical/urgent rule that
+ * notifyOrg uses. A donor is not sitting in the app waiting; an
+ * invitation they never see is the same as no invitation. So `email` is
+ * an explicit argument and mobilization invites always pass true,
+ * whatever the urgency tier.
+ */
+async function notifyUser(userId, type, message, relatedRequestId = null, email = false) {
+  await pool.query(
+    `INSERT INTO notifications (user_id, type, message, related_request_id) VALUES ($1, $2, $3, $4)`,
+    [userId, type, message, relatedRequestId]
+  );
+
+  if (!email) return;
+
+  try {
+    const { rows } = await pool.query('SELECT email FROM users WHERE user_id = $1', [userId]);
+    if (rows.length > 0 && rows[0].email) {
+      await sendNotificationEmail(rows[0].email, message, relatedRequestId);
+    }
+  } catch (err) {
+    console.error('[notifications] donor email delivery failed:', err.message);
+  }
+}
+
+module.exports = { notifyOrg, notifyUser };

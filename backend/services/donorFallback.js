@@ -5,6 +5,7 @@
 const pool = require('../db');
 const { logRequestEvent } = require('./requestEvents');
 const { getEligibility, isUnderAnnualCap } = require('./eligibility');
+const { notifyUser } = require('./notificationService');
 
 const MAX_DONORS_PER_INVITE = 5;
 
@@ -44,7 +45,9 @@ async function triggerDonorFallback(request) {
   const excludeIds = alreadyInvited.rows.map((r) => r.donor_id);
 
   const orgResult = await pool.query(
-    'SELECT district, thana_id FROM organizations WHERE org_id = $1',
+    // name is selected so the donor's invitation can say who is asking.
+    // "You are a match for a request" tells them nothing actionable.
+    'SELECT name, district, thana_id FROM organizations WHERE org_id = $1',
     [request.org_id]
   );
   const org = orgResult.rows[0] || {};
@@ -58,7 +61,12 @@ async function triggerDonorFallback(request) {
   // pool, not millions of rows) -- not worth forcing the crossover logic
   // into an unwieldy SQL CASE tree just to keep everything server-side.
   const candidatesResult = await pool.query(
-    `SELECT donor_id, last_donation_date, last_donation_component, sex,
+    // user_id comes along so the invited donor can actually be told.
+    // It is NULL for seeded donors who have no login, and those are
+    // still invited: a coordinator can phone them. They simply get no
+    // in-app notification, which is the honest outcome rather than a
+    // silent failure.
+    `SELECT donor_id, user_id, last_donation_date, last_donation_component, sex,
        CASE
          WHEN current_thana_id IS NOT NULL AND current_thana_id = $3 THEN 0
          WHEN current_district IS NOT NULL AND current_district = $4 THEN 1
@@ -101,7 +109,42 @@ async function triggerDonorFallback(request) {
     );
   }
 
-  const fulfillmentPath = request.urgency_tier === 'critical' ? 'parallel_critical' : 'donor_fallback';
+  // Tell the donors they have been invited.
+  //
+  // Until now nothing did. donor_mobilizations rows were written and the
+  // request sat waiting on people who had no way of knowing they had
+  // been asked. Email goes out for every invitation regardless of
+  // urgency tier, because a donor is not sitting in the app: an in-app
+  // notification alone would reach them only if they happened to log in.
+  const invitedOrgName = org.name || 'a hospital';
+  try {
+    for (const donor of donorsResult.rows) {
+      if (!donor.user_id) continue;
+      await notifyUser(
+        donor.user_id,
+        'donor_invited',
+        `You are a match for a ${request.blood_type} ${String(request.component).replace('_', ' ')} `
+        + `request at ${invitedOrgName}. Open My Invites to accept or decline.`,
+        request.request_id,
+        true
+      );
+    }
+  } catch (err) {
+    // The invitations are already recorded in donor_mobilizations, which
+    // is what the rest of the system reads. Failing the whole fallback
+    // because a message could not be delivered would be worse than a
+    // donor having to find the invite themselves.
+    console.error('[donorFallback] invitation notification failed:', err.message);
+  }
+
+  // Elective requests get their own path value rather than being
+  // flattened into 'donor_fallback'. The schema has always had
+  // 'scheduled_donor_mobilization' for exactly this and nothing ever
+  // wrote it, because elective requests never reached this function.
+  const fulfillmentPath =
+    request.urgency_tier === 'critical' ? 'parallel_critical'
+      : request.urgency_tier === 'elective' ? 'scheduled_donor_mobilization'
+        : 'donor_fallback';
 
   await pool.query('UPDATE requests SET fulfillment_path = $1 WHERE request_id = $2', [
     fulfillmentPath,

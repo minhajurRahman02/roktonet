@@ -39,6 +39,8 @@ Supabase SQL Editor.
 | 15 | `seed_data.sql` | Demo data. Optional, and only on a database you are happy to fill with fake rows |
 | 16 | `migration_roktim.sql` | `roktim_advisories` table (Phase 6E, the Roktim advisory log) |
 | 17 | `migration_refinements.sql` | Patient fields on `requests`; organization uniqueness indexes |
+| 18 | `migration_supply_rules.sql` | Releases units trapped by the elective loop; moves hospital-held stock to blood banks |
+| 19 | `migration_drive_features.sql` | `drive_notes` table; `donor_drives.overdue_notified_at` |
 
 Step 16 has **no ordering constraint at all**. It creates one table that
 references nothing else, by design: the Roktim module has to be removable by
@@ -54,6 +56,23 @@ them. If either returns rows, index creation will fail against existing data,
 and you either fix those organizations first or skip the indexes and rely on the
 route-level checks alone. The file says this inline as well.
 
+Step 18 has two independent halves and the file says so inline.
+
+**Section A** releases inventory units that the elective allocation bug left
+reserved against requests that could never resolve. Run it on any deployment,
+and run it soon: every trapped unit is blood nobody can allocate. It prints what
+it is about to touch before it touches anything, and it never releases a unit
+that has been dispatched or delivered.
+
+**Section B** moves hospital-held stock to a blood bank in the same district,
+creating a bank only for districts that have none. This one is not urgent. Once
+the application code is deployed the optimizer already ignores hospital stock,
+so nothing gets worse while the data sits unmigrated; it simply stays invisible.
+Read the output of B1 and B2 before running the rest.
+
+Step 19 is additive only and can run any time after step 4, which creates
+`donor_drives`.
+
 ## Real ordering constraints
 
 Most of these are independent and could be reordered, but three cannot:
@@ -65,6 +84,12 @@ Most of these are independent and could be reordered, but three cannot:
 - **13 before 14** is not a hard dependency, but run it that way anyway: the
   allocation repair is the riskier of the two and you want a clean result from it
   before changing anything else.
+- **4 before 19.** `migration_drive_features.sql` alters `donor_drives`, which
+  `migration_ngo.sql` creates.
+- **Deploy the backend before running 18 section B.** Not a database
+  dependency, an operational one. The migration moves stock out of hospitals;
+  the code is what stops it going back. Run it against an old backend and the
+  next admin who adds a unit under a hospital puts it straight back.
 
 ## Before running 13 on a live database
 

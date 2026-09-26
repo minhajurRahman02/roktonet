@@ -17,6 +17,7 @@ import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { useAuth } from '../../context/AuthContext';
 import { listUsers, createAdmin } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 const ROLES = ['hospital', 'bank', 'ngo', 'donor', 'admin'];
 
@@ -24,7 +25,7 @@ export default function AdminUsers() {
   const navigate = useNavigate();
   const { user: me } = useAuth();
   const [filters, setFilters] = useState({ search: '', role: '', org_id: '', is_active: '', is_verified: '' });
-  const [applied, setApplied] = useState(filters);
+  const applied = useDebouncedFilters(filters);
   const users = usePaginatedAsync(
     ({ page, per_page }) => listUsers({ ...applied, page, per_page }),
     [applied],
@@ -63,7 +64,7 @@ export default function AdminUsers() {
         action={me?.is_primary_admin ? <Button onClick={() => setCreateOpen(true)}>+ Create admin</Button> : null}
       />
 
-      <form onSubmit={(e) => { e.preventDefault(); setApplied(filters); }}>
+      <form onSubmit={(e) => e.preventDefault()}>
         <FilterBar cols={7}>
           <Input className="md:col-span-2" placeholder="Search name or email…" value={filters.search} onChange={set('search')} />
           <Select value={filters.role} onChange={set('role')}><option value="">All roles</option>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</Select>

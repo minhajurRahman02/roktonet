@@ -20,6 +20,7 @@ import { listOrganizations } from '../../api/organizations';
 import { getDistricts, getThanas } from '../../api/locations';
 import { BLOOD_TYPES } from '../../constants/blood';
 import { getEligibilityBreakdown } from '../../utils/eligibility';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 /**
  * The compact eligibility cell: "WB:128, Plat:5, Plas:21".
@@ -60,7 +61,10 @@ EligibilityCell.propTypes = { donor: PropTypes.object.isRequired };
 
 export default function AdminDonors() {
   const [filters, setFilters] = useState({ search: '', blood_type: '', org_id: '', eligibility_status: '', district: '', thana: '', has_login: '' });
-  const [applied, setApplied] = useState({});
+  // Results now update as you type. useDebouncedFilters does the
+  // empty-value stripping the old apply() handler did, 300ms after the
+  // last keystroke rather than on submit.
+  const applied = useDebouncedFilters(filters);
 
   // 7.7a: paginated. The loader receives the paging params and passes them
   // straight through -- listDonors already serialises whatever object it
@@ -100,7 +104,10 @@ export default function AdminDonors() {
   // one, so clear it rather than silently filtering on a thana that does
   // not exist in the newly selected district.
   const setDistrict = (e) => setFilters((f) => ({ ...f, district: e.target.value, thana: '' }));
-  const apply = (e) => { e.preventDefault(); setApplied(Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ''))); };
+  // The form stays, and so does preventDefault: pressing Enter in the
+  // search box must not reload the page. It simply has nothing left to
+  // submit, because the filters are already applied.
+  const apply = (e) => e.preventDefault();
 
   return (
     <div className="p-6">
@@ -108,7 +115,7 @@ export default function AdminDonors() {
 
       <form onSubmit={apply}>
         <FilterBar cols={8}>
-          <Input className="md:col-span-2" placeholder="Search name or email…" value={filters.search} onChange={set('search')} />
+          <Input className="md:col-span-2" placeholder="Search name, email or phone…" value={filters.search} onChange={set('search')} />
           <Select value={filters.blood_type} onChange={set('blood_type')}><option value="">All blood types</option>{BLOOD_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}</Select>
           <Select value={filters.org_id} onChange={set('org_id')}><option value="">All NGOs</option>{(ngos.data || []).map((o) => <option key={o.org_id} value={o.org_id}>{o.name}</option>)}</Select>
           {/* 'pending' removed: nothing ever wrote it, and there is no third

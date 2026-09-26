@@ -5,6 +5,7 @@
 
 const { runAllocationBatch } = require('./services/engineClient');
 const { escalateStaleMobilizations } = require('./services/donorFallback');
+const { notifyOverdueDrives } = require('./services/driveNotifications');
 
 function startScheduler() {
   const intervalMs = parseInt(process.env.BATCH_INTERVAL_MS, 10) || 5 * 60 * 1000; // default: 5 minutes
@@ -26,6 +27,24 @@ function startScheduler() {
       }
     } catch (err) {
       console.error('[Escalation] failed:', err.message);
+    }
+
+    // Drives whose date passed while they were still only planned.
+    // Rides this timer rather than getting one of its own: it is a
+    // single indexed query, and each drive is reported once because
+    // the query stamps overdue_notified_at as it claims the row.
+    //
+    // In its own try/catch like the two above, so a failure here cannot
+    // stop the next tick's allocation batch. The ordering is deliberate
+    // too: allocation runs first because blood moving matters more than
+    // a reminder.
+    try {
+      const overdue = await notifyOverdueDrives();
+      if (overdue.length > 0) {
+        console.log('[Overdue drives]', overdue);
+      }
+    } catch (err) {
+      console.error('[Overdue drives] failed:', err.message);
     }
   }, intervalMs);
 }

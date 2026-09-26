@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch, downloadFile } from './client';
 
 /**
  * @param {{org_id?: string, district?: string, status?: string}} [filters]
@@ -49,4 +49,40 @@ export function logUnit(driveId, data) {
  */
 export function getDriveLog(driveId) {
   return apiFetch(`/api/drives/${driveId}/log`);
+}
+/**
+ * Downloads a drive's summary report.
+ *
+ * Four small tables in one file: the drive itself, totals by blood
+ * type, totals by component, and collection by hour. CSV arrives as a
+ * zip, because four tables do not fit in one CSV; XLSX gets four
+ * sheets and PDF four sections.
+ *
+ * @param {string} driveId
+ * @param {'csv'|'xlsx'|'pdf'} format
+ */
+export function downloadDriveReport(driveId, format) {
+  return downloadFile(
+    `/api/drives/${driveId}/report?format=${format}`,
+    `roktonet_drive_report.${format === 'csv' ? 'zip' : format}`
+  );
+}
+
+/**
+ * Downloads the raw per-unit log for a drive: one row per unit, with
+ * the donor, timestamps and current status.
+ *
+ * @param {string} driveId
+ * @param {'csv'|'xlsx'|'pdf'} format
+ */
+export function downloadDriveLog(driveId, format) {
+  return downloadFile(`/api/drives/${driveId}/logs?format=${format}`, `roktonet_drive_log.${format}`);
+}
+
+/**
+ * Deletes an upcoming drive. The server refuses unless the drive is
+ * still 'planned' and has nothing logged against it.
+ */
+export function deleteDrive(driveId) {
+  return apiFetch(`/api/drives/${driveId}`, { method: 'DELETE' });
 }

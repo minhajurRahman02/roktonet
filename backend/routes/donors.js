@@ -76,7 +76,39 @@ router.get('/', requireAuth, requireRole('ngo', 'bank', 'admin'), async (req, re
 
   if (req.query.search) {
     values.push(`%${req.query.search}%`);
-    conditions.push(`(d.full_name ILIKE $${values.length} OR d.email ILIKE $${values.length})`);
+    const like = `$${values.length}`;
+
+    // Phone is matched on digits only, on both sides.
+    //
+    // The same number gets written as 01712-345678, +8801712345678 and
+    // 01712 345678, so a plain ILIKE on the stored string finds a donor
+    // only if the searcher happens to punctuate it the way whoever
+    // registered them did. Stripping non-digits from the column and from
+    // the search term means any of those spellings finds the donor.
+    //
+    // Only applied when the term actually contains a digit, so that
+    // searching for a name does not also run a pointless regex over
+    // every phone number in the table.
+    // A leading 880 is dropped from the SEARCH TERM only. Numbers are
+    // stored in local form (01712345678), so someone pasting
+    // +8801712345678 out of their contacts would otherwise find nothing,
+    // which is the one spelling most likely to be pasted rather than
+    // typed. Removing it leaves 1712345678, a substring of the stored
+    // value, so the existing match works unchanged.
+    //
+    // Stripping it from the search term rather than the column keeps
+    // this from touching a donor whose number happens to contain 880
+    // somewhere in the middle.
+    const digits = String(req.query.search).replace(/\D/g, '').replace(/^880/, '');
+    if (digits) {
+      values.push(`%${digits}%`);
+      conditions.push(
+        `(d.full_name ILIKE ${like} OR d.email ILIKE ${like}`
+        + ` OR regexp_replace(COALESCE(d.phone_number, ''), '\\D', '', 'g') ILIKE $${values.length})`
+      );
+    } else {
+      conditions.push(`(d.full_name ILIKE ${like} OR d.email ILIKE ${like})`);
+    }
   }
   if (req.query.has_login === 'true') conditions.push('d.user_id IS NOT NULL');
   if (req.query.has_login === 'false') conditions.push('d.user_id IS NULL');

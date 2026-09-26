@@ -10,10 +10,12 @@
 
 const express = require('express');
 const router = express.Router();
-const ExcelJS = require('exceljs');
-const PDFDocument = require('pdfkit');
-const archiver = require('archiver');
 const pool = require('../../db');
+// The three format writers used to live in this file. They moved to
+// services/reportWriters.js when NGO drive reports needed the same ones;
+// nothing about their behaviour changed, and this route still decides
+// every question about WHAT is in a report.
+const { FORMATS, sendDatasets } = require('../../services/reportWriters');
 const { eligibilityStatusSql } = require('../../services/eligibility');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { logAdminAction } = require('../../services/adminAudit');
@@ -21,7 +23,6 @@ const { parseDateRange } = require('./_helpers');
 
 router.use(requireAuth, requireRole('admin'));
 
-const FORMATS = ['csv', 'xlsx', 'pdf'];
 
 // Builds "AND col >= $n AND col <= $m" for an optional window.
 function windowSql(column, from, to) {
@@ -239,77 +240,6 @@ const DATASETS = {
 
 const SNAPSHOT_ORDER = ['analytics-summary', 'organizations', 'users', 'requests', 'allocations', 'inventory', 'donors', 'drives', 'mobilizations', 'audit'];
 
-// ---------------------------------------------------------------------------
-// Value formatting shared by every writer.
-// ---------------------------------------------------------------------------
-function cell(v) {
-  if (v === null || v === undefined) return '';
-  if (v instanceof Date) return v.toISOString().replace('T', ' ').slice(0, 19);
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
-}
-
-function toCsv(dataset, rows) {
-  const esc = (s) => {
-    const str = cell(s);
-    return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-  };
-  const lines = [dataset.columns.map((c) => esc(c.header)).join(',')];
-  for (const row of rows) lines.push(dataset.columns.map((c) => esc(row[c.key])).join(','));
-  return lines.join('\r\n');
-}
-
-function addSheet(workbook, dataset, rows) {
-  const sheet = workbook.addWorksheet(dataset.title.slice(0, 31));
-  sheet.columns = dataset.columns.map((c) => ({ header: c.header, key: c.key, width: Math.max(12, Math.min(40, c.header.length + 6)) }));
-  sheet.getRow(1).font = { bold: true };
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-  for (const row of rows) {
-    sheet.addRow(Object.fromEntries(dataset.columns.map((c) => [c.key, row[c.key] instanceof Date ? row[c.key] : (typeof row[c.key] === 'object' && row[c.key] !== null ? JSON.stringify(row[c.key]) : row[c.key])])));
-  }
-}
-
-// Minimal table renderer for pdfkit: header row + rows with page breaks.
-// Column widths are proportional to header length, clamped, so long tables
-// stay legible in landscape.
-function addPdfSection(doc, dataset, rows, { from, to, isFirst }) {
-  if (!isFirst) doc.addPage();
-  doc.fontSize(16).font('Helvetica-Bold').text(dataset.title);
-  doc.fontSize(9).font('Helvetica').fillColor('#555')
-    .text(`Window: ${from ? from.toISOString().slice(0, 10) : 'all time'} to ${to ? to.toISOString().slice(0, 10) : 'now'}  |  ${rows.length} row(s)  |  Generated ${new Date().toISOString().slice(0, 19).replace('T', ' ')} UTC`)
-    .fillColor('#000').moveDown(0.6);
-
-  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const weights = dataset.columns.map((c) => Math.max(8, Math.min(28, c.header.length + 4)));
-  const totalW = weights.reduce((s, w) => s + w, 0);
-  const widths = weights.map((w) => (w / totalW) * pageWidth);
-  const x0 = doc.page.margins.left;
-  const lineH = 13;
-
-  const drawRow = (values, bold) => {
-    if (doc.y + lineH > doc.page.height - doc.page.margins.bottom) {
-      doc.addPage();
-      drawRow(dataset.columns.map((c) => c.header), true);
-    }
-    const y = doc.y;
-    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.5);
-    let x = x0;
-    values.forEach((v, i) => {
-      doc.text(cell(v).slice(0, 60), x + 2, y + 2, { width: widths[i] - 4, height: lineH, ellipsis: true, lineBreak: false });
-      x += widths[i];
-    });
-    doc.moveTo(x0, y + lineH).lineTo(x0 + pageWidth, y + lineH).strokeColor(bold ? '#000' : '#ddd').lineWidth(0.5).stroke();
-    doc.y = y + lineH;
-  };
-
-  drawRow(dataset.columns.map((c) => c.header), true);
-  if (rows.length === 0) {
-    doc.moveDown(0.3).fontSize(9).fillColor('#777').text('No rows in this window.', x0).fillColor('#000');
-    return;
-  }
-  for (const row of rows) drawRow(dataset.columns.map((c) => row[c.key]), false);
-}
-
 function fileStem(name, from, to) {
   const f = from ? from.toISOString().slice(0, 10) : 'all';
   const t = to ? to.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
@@ -328,38 +258,14 @@ async function sendReport(res, req, name, datasetNames, format, from, to) {
     },
   });
 
-  if (format === 'csv') {
-    if (sets.length === 1) {
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${stem}.csv"`);
-      return res.send('\uFEFF' + toCsv(sets[0].dataset, sets[0].rows));
-    }
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${stem}.zip"`);
-    const archive = archiver('zip', { zlib: { level: 6 } });
-    archive.on('error', (err) => { console.error(err); res.destroy(err); });
-    archive.pipe(res);
-    for (const s of sets) archive.append('\uFEFF' + toCsv(s.dataset, s.rows), { name: `${s.name}.csv` });
-    return archive.finalize();
-  }
-
-  if (format === 'xlsx') {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'RoktoNet';
-    workbook.created = new Date();
-    for (const s of sets) addSheet(workbook, s.dataset, s.rows);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${stem}.xlsx"`);
-    return workbook.xlsx.write(res).then(() => res.end());
-  }
-
-  // pdf
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${stem}.pdf"`);
-  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36, info: { Title: `RoktoNet ${name} report`, Author: 'RoktoNet' } });
-  doc.pipe(res);
-  sets.forEach((s, i) => addPdfSection(doc, s.dataset, s.rows, { from, to, isFirst: i === 0 }));
-  doc.end();
+  return sendDatasets(res, {
+    stem,
+    title: `RoktoNet ${name} report`,
+    sets,
+    format,
+    subtitle: `Window: ${from ? from.toISOString().slice(0, 10) : 'all time'} `
+      + `to ${to ? to.toISOString().slice(0, 10) : 'now'}`,
+  });
 }
 
 function validate(req, res) {

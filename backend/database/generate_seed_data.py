@@ -124,8 +124,25 @@ org_ids_by_type = {
     "ngo": [o["org_id"] for o in organizations if o["org_type"] == "ngo"],
 }
 org_district_by_id = {o["org_id"]: o["district"] for o in organizations}
-# orgs that can physically hold inventory: blood banks + hospitals (Section 5: "blood banks (hospital-based)")
-stock_holding_org_ids = org_ids_by_type["blood_bank"] + org_ids_by_type["hospital"]
+# Orgs that can physically hold inventory: blood banks and NGOs only.
+#
+# Hospitals used to be in this list, on a reading of Section 5's phrase
+# "blood banks (hospital-based)" as meaning the hospital itself holds
+# stock. It does not. A hospital-based blood bank is a blood bank that
+# happens to sit inside a hospital, and in RoktoNet it registers as its
+# own organization with org_type 'blood_bank' and its own contact email.
+# The hospital consumes blood; it never supplies it.
+#
+# That misreading put 47% of all seeded stock under hospitals and had
+# the optimizer routinely allocating from them, which is what
+# migration_supply_rules.sql section B exists to undo. Leaving this line
+# as it was would have quietly recreated the problem the next time
+# anyone regenerated the seed.
+#
+# NGOs are included even though they start with no stock in practice:
+# their units normally come from logging a blood drive, so this mainly
+# matters if the volume constants below are ever raised.
+stock_holding_org_ids = org_ids_by_type["blood_bank"] + org_ids_by_type["ngo"]
 
 # ---------------------------------------------------------------------------
 # 2. Donors

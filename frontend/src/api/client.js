@@ -64,3 +64,60 @@ export async function apiFetch(path, options = {}) {
 
   return data;
 }
+/**
+ * Fetches a file-streaming endpoint and hands the result to the browser
+ * as a download.
+ *
+ * Endpoints that stream a file cannot go through apiFetch, which parses
+ * every response as JSON. They still belong behind the service layer
+ * though, which is why this lives here rather than as a fetch() call
+ * inside a component: same base URL, same credentials, same auth
+ * headers, same error shape.
+ *
+ * The filename comes from the server's Content-Disposition rather than
+ * being guessed, so what lands in the Downloads folder matches what the
+ * server thinks it sent, including the .zip that a multi-table CSV
+ * export actually produces.
+ *
+ * @param {string} path - e.g. '/api/drives/<id>/report?format=pdf'
+ * @param {string} fallbackName - used only if the server sends no filename
+ * @returns {Promise<string>} the filename the browser saved
+ */
+export async function downloadFile(path, fallbackName) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+
+  if (!res.ok) {
+    // A failed download still returns JSON, so the real message is
+    // recoverable. Falling back to the status code matters for the
+    // cases where it is not, such as a proxy error page.
+    let message = `Request failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.error) message = data.error;
+    } catch {
+      // body was not JSON; keep the status message
+    }
+    throw new Error(message);
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match ? match[1] : fallbackName;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked immediately: the click has already handed the blob to the
+  // browser's download manager, and leaving object URLs alive pins the
+  // whole file in memory for the life of the tab.
+  URL.revokeObjectURL(url);
+  return filename;
+}

@@ -22,6 +22,7 @@ import { cancelRequest } from '../../api/admin';
 import { getDistricts } from '../../api/locations';
 import { BLOOD_TYPES, URGENCY_TIERS, FULFILLMENT_PATHS } from '../../constants/blood';
 import { relativeTime } from '../../utils/relativeTime';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 export default function AdminRequests() {
   const [filters, setFilters] = useState({ urgency_tier: '', fulfillment_path: '', district: '', blood_type: '', cancelled: 'false' });
@@ -35,7 +36,10 @@ export default function AdminRequests() {
     const q = { ...f, ...rangeToQuery(r) };
     return Object.fromEntries(Object.entries(q).filter(([, v]) => v !== ''));
   };
-  const [applied, setApplied] = useState(buildQuery(filters, range));
+  // Filters and the date range are merged first, then debounced
+  // together, so changing a dropdown and typing in the same breath is
+  // one request rather than two.
+  const applied = useDebouncedFilters(buildQuery(filters, range));
   const requests = usePaginatedAsync(
     ({ page, per_page }) => listRequests({ ...applied, page, per_page }),
     [applied],
@@ -50,7 +54,7 @@ export default function AdminRequests() {
   const [done, setDone] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied(buildQuery(filters, range)); };
+  const apply = (e) => e.preventDefault();
 
   const confirmCancel = async () => {
     setBusy(true); setErr('');

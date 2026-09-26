@@ -20,6 +20,7 @@ import { updateInventoryUnit } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
 import { getDistricts } from '../../api/locations';
 import { BLOOD_TYPES, COMPONENTS, UNIT_STATUSES } from '../../constants/blood';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 const STATUS_ORDER = UNIT_STATUSES;
 const TERMINAL = ['dispatched', 'delivered'];
@@ -34,7 +35,7 @@ function ExpiryBadge({ days }) {
 
 export default function AdminInventory() {
   const [filters, setFilters] = useState({ org_id: '', status: '', blood_type: '', component: '', district: '', expiring_within_days: '' });
-  const [applied, setApplied] = useState({});
+  const applied = useDebouncedFilters(filters);
   const units = usePaginatedAsync(
     ({ page, per_page }) => listInventory({ ...applied, page, per_page }),
     [applied],
@@ -48,7 +49,7 @@ export default function AdminInventory() {
   const [err, setErr] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied(Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ''))); };
+  const apply = (e) => e.preventDefault();
 
   const openEdit = (u) => { setEditing(u); setForm({ blood_type: u.blood_type, component: u.component, expiry_date: fmtDate(u.expiry_date), status: u.status }); setErr(''); };
   const locked = editing && editing.status !== 'available';

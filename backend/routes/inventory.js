@@ -6,6 +6,7 @@ const { logAdminAction } = require('../services/adminAudit');
 const { notifyOrg } = require('../services/notificationService');
 const { logRequestEvent } = require('../services/requestEvents');
 const { parsePagination, queryPage } = require('../utils/pagination');
+const { isSupplierOrgType } = require('../constants/supplierOrgTypes');
 
 // GET /api/inventory - list inventory, filterable by blood_type, component.
 // Auto-scoped to the caller's own org for bank/ngo, same pattern as
@@ -154,6 +155,27 @@ router.post('/', requireAuth, requireRole('bank', 'ngo', 'admin'), async (req, r
   }
 
   try {
+    // Only blood banks and NGOs may hold stock. The role guard above stops
+    // a hospital user logging units for itself, but it does NOT stop an
+    // admin logging units under a hospital, which is exactly how the
+    // existing hospital-held inventory got there. Checking the target
+    // organization's type closes that door for everyone, admin included.
+    const ownerResult = await pool.query(
+      'SELECT org_type, name FROM organizations WHERE org_id = $1',
+      [org_id]
+    );
+    if (ownerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+    if (!isSupplierOrgType(ownerResult.rows[0].org_type)) {
+      return res.status(400).json({
+        error:
+          `${ownerResult.rows[0].name} is a hospital, and hospitals cannot hold blood units. `
+          + 'A hospital blood bank takes part in the network as its own organization, registered '
+          + 'with the blood bank role and its own email address.',
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO inventory_units (org_id, donor_id, blood_type, component, collection_date, expiry_date)
        VALUES ($1, $2, $3, $4, $5, $6)

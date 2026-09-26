@@ -6,10 +6,12 @@ import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import Button from '../../components/atoms/Button';
 import Input from '../../components/atoms/Input';
-import { getDrive, startDrive, finishDrive } from '../../api/drives';
+import DownloadControl from '../../components/molecules/DownloadControl';
+import { getDrive, startDrive, finishDrive, downloadDriveReport } from '../../api/drives';
 import { listInventory } from '../../api/inventory';
 import { listDonors } from '../../api/donors';
 import { relativeTime } from '../../utils/relativeTime';
+import { useDebouncedValue } from '../../hooks/useDebouncedFilters';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend, ArcElement);
 
@@ -27,7 +29,8 @@ export default function DriveDetail() {
   const [starting, setStarting] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [phone, setPhone] = useState('');
-  const [searchResult, setSearchResult] = useState(null);
+  const [donorResults, setDonorResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
 
   const load = useCallback(() => {
@@ -72,20 +75,54 @@ export default function DriveDetail() {
     }
   }
 
-  async function handleSearch() {
+  // Roster lookup for logging a unit.
+  //
+  // This used to require typing a full phone number and pressing Search,
+  // and showed nothing at all until you did. At a live drive that is the
+  // wrong shape: the volunteer at the table has a person in front of
+  // them and often only a first name, and an empty panel gives no hint
+  // that a roster exists.
+  //
+  // Now the panel is always populated, the search runs as you type, and
+  // it matches name, email or phone in any spelling, because the server
+  // compares phone numbers digit by digit.
+  //
+  // DONOR_PREVIEW_COUNT is 3 when nothing has been typed, per the brief:
+  // enough to show the list is alive and that these are your donors,
+  // without turning the top of the page into a roster dump.
+  const DONOR_PREVIEW_COUNT = 3;
+  const DONOR_RESULT_COUNT = 8;
+
+  const debouncedQuery = useDebouncedValue(phone, 300);
+
+  useEffect(() => {
+    let cancelled = false;
+    const q = debouncedQuery.trim();
+    const perPage = q ? DONOR_RESULT_COUNT : DONOR_PREVIEW_COUNT;
+
     setSearchError('');
-    setSearchResult(null);
-    try {
-      const results = await listDonors({ phone });
-      if (results.length === 0) {
-        setSearchError('No donor found with that number.');
-      } else {
-        setSearchResult(results[0]);
-      }
-    } catch (err) {
-      setSearchError(err.message);
-    }
-  }
+    setSearching(true);
+    listDonors(q ? { search: q, page: 1, per_page: perPage } : { page: 1, per_page: perPage })
+      .then((res) => {
+        if (cancelled) return;
+        // listDonors returns a bare array when called without paging and
+        // { data, page } when called with it. Both shapes are handled
+        // because this component is not the right place to care which.
+        const rows = Array.isArray(res) ? res : (res.data || []);
+        setDonorResults(rows);
+        if (q && rows.length === 0) {
+          setSearchError('Nobody on your roster matches that. Register them below and log the unit straight after.');
+        }
+      })
+      .catch((err) => { if (!cancelled) setSearchError(err.message); })
+      .finally(() => { if (!cancelled) setSearching(false); });
+
+    // Cancelled rather than aborted: a stale response that arrives after
+    // a newer one must not overwrite it, which is the classic
+    // search-as-you-type bug where the list settles on the answer to a
+    // prefix of what you typed.
+    return () => { cancelled = true; };
+  }, [debouncedQuery]);
 
   if (status === 'loading') {
     return (
@@ -160,13 +197,19 @@ export default function DriveDetail() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Link to={`/ngo/drives/${id}/log`} className="text-sm font-medium text-primary dark:text-textprimary-dark underline">
             View full log
           </Link>
-          <button disabled title="Coming later, for every role at once" className="text-sm font-medium border border-gray-300 dark:border-white/10 text-gray-400 px-4 py-2 rounded-lg cursor-not-allowed">
-            Generate report (coming soon)
-          </button>
+          {/* The summary, not the raw log. The raw per-unit export
+              lives on the Drive Log page, next to the table it
+              exports, so each download sits beside the thing it is a
+              copy of. */}
+          <DownloadControl
+            label="Generate report"
+            defaultFormat="pdf"
+            onDownload={(format) => downloadDriveReport(id, format)}
+          />
         </div>
       </div>
     );
@@ -216,27 +259,54 @@ export default function DriveDetail() {
       </div>
 
       <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-5 mb-6">
-        <p className="text-sm font-medium mb-3 dark:text-textprimary-dark">Search roster by phone</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSearch();
-          }}
-          className="flex flex-col sm:flex-row gap-2"
-        >
-          <Input placeholder="Enter phone number..." value={phone} onChange={(e) => setPhone(e.target.value)} className="flex-1" />
-          <Button type="submit" variant="primary" className="shrink-0">Search</Button>
+        <div className="flex items-baseline justify-between mb-3 gap-3">
+          <p className="text-sm font-medium dark:text-textprimary-dark">Find a donor</p>
+          <p className="text-xs text-gray-400">
+            {searching ? 'Searching…'
+              : phone.trim() ? `${donorResults.length} match${donorResults.length === 1 ? '' : 'es'}`
+                : 'Recent donors on your roster'}
+          </p>
+        </div>
+        {/* The form wrapper stays so Enter behaves, but there is no
+            Search button any more: results follow the typing. */}
+        <form onSubmit={(e) => e.preventDefault()}>
+          <Input
+            placeholder="Search by name, phone or email…"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full"
+          />
         </form>
         {searchError && <p className="text-xs text-critical-text dark:text-critical-dtext mt-2">{searchError}</p>}
-        {searchResult && (
-          <div className="mt-3 flex items-center justify-between border border-gray-100 dark:border-white/10 rounded-lg p-3 text-sm">
-            <div>
-              <p className="font-medium dark:text-textprimary-dark">{searchResult.full_name}, {searchResult.blood_type}</p>
-              <p className="text-xs text-gray-400">
-                {searchResult.last_donation_date ? `Last donated ${new Date(searchResult.last_donation_date).toLocaleDateString()}` : 'Never donated before'}
-              </p>
-            </div>
-            <Button variant="primary" onClick={() => navigate(`/ngo/drives/${id}/log-unit/${searchResult.donor_id}`)}>Log unit</Button>
+
+        {donorResults.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {donorResults.map((d) => (
+              <div
+                key={d.donor_id}
+                className="flex items-center justify-between gap-3 border border-gray-100 dark:border-white/10 rounded-lg p-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium dark:text-textprimary-dark truncate">
+                    {d.full_name || 'Unnamed donor'}
+                    {d.blood_type && <span className="text-gray-400 font-normal">, {d.blood_type}</span>}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {d.phone_number ? `${d.phone_number} · ` : ''}
+                    {d.last_donation_date
+                      ? `Last donated ${new Date(d.last_donation_date).toLocaleDateString()}`
+                      : 'Never donated before'}
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  className="shrink-0"
+                  onClick={() => navigate(`/ngo/drives/${id}/log-unit/${d.donor_id}`)}
+                >
+                  Log unit
+                </Button>
+              </div>
+            ))}
           </div>
         )}
         <p className="text-xs text-gray-400 mt-3">

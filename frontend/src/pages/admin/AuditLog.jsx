@@ -13,6 +13,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listAudit, listUsers } from '../../api/admin';
 import { relativeTime } from '../../utils/relativeTime';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 // Mirrors services/adminAudit.js's documented action_type values.
 const ACTIONS = ['batch_triggered', 'user_updated', 'user_deactivated', 'user_reactivated', 'admin_created', 'request_cancelled', 'inventory_updated', 'org_updated', 'org_created', 'broadcast_sent', 'view_as_started', 'report_generated'];
@@ -40,7 +41,7 @@ function details(d) {
 export default function AdminAuditLog() {
   const [filters, setFilters] = useState({ action_type: '', admin_user_id: '', target_type: '' });
   const [range, setRange] = useState({ ...defaultRange(30), allTime: true });
-  const [applied, setApplied] = useState({});
+  const applied = useDebouncedFilters({ ...filters, ...rangeToQuery(range) });
   const audit = usePaginatedAsync(
     ({ page, per_page }) => listAudit({ ...applied, page, per_page }),
     [applied],
@@ -49,7 +50,7 @@ export default function AdminAuditLog() {
   const admins = useAsync(() => listUsers({ role: 'admin' }), []);
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied({ ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '')), ...rangeToQuery(range) }); };
+  const apply = (e) => e.preventDefault();
 
   return (
     <div className="p-6">

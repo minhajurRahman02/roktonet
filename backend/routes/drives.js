@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { getEligibility, isUnderAnnualCap } = require('../services/eligibility');
 const { parsePagination, queryPage } = require('../utils/pagination');
+const { FORMATS, cell, sendDatasets } = require('../services/reportWriters');
 
 // Same shelf-life reference ranges already used by Blood Bank's Add
 // Inventory Unit -- reused here rather than reinvented, so a unit logged
@@ -183,6 +184,71 @@ router.post('/:id/finish', requireAuth, requireRole('ngo', 'admin'), async (req,
   }
 });
 
+// DELETE /api/drives/:id - remove a drive that has not happened.
+//
+// Only a 'planned' drive can be deleted, and only if nothing has been
+// logged against it. Those two rules are not the same check and both are
+// needed:
+//
+//   * status guards intent. An active or completed drive is a record of
+//     something that took place. Deleting it would erase the provenance
+//     of every unit collected there, since inventory_units.drive_id is
+//     how a unit is traced back to the session that produced it.
+//
+//   * the unit count guards reality. A drive that was started, had units
+//     logged, and was then somehow returned to 'planned' would pass the
+//     status check while still owning real blood.
+//
+// Cancelling and deleting are deliberately kept apart. 'cancelled' says
+// a drive was called off, which is worth keeping; deletion is for a
+// drive created by mistake, or one whose plans changed before anyone
+// relied on it. The error below points at cancelling, because for a
+// drive that already ran that is the answer the NGO actually wants.
+router.delete('/:id', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
+  const owned = await getOwnedDrive(req.params.id, req.user);
+  if (owned.error) return res.status(owned.error).json({ error: owned.message });
+
+  if (owned.drive.status !== 'planned') {
+    return res.status(400).json({
+      error:
+        `Only an upcoming drive can be deleted, and this one is '${owned.drive.status}'. `
+        + 'Cancel it instead, which keeps the record and everything logged against it.',
+    });
+  }
+
+  try {
+    const units = await pool.query(
+      'SELECT COUNT(*)::int AS n FROM inventory_units WHERE drive_id = $1',
+      [req.params.id]
+    );
+    if (units.rows[0].n > 0) {
+      return res.status(400).json({
+        error:
+          `This drive has ${units.rows[0].n} unit(s) logged against it, so deleting it would `
+          + 'erase where that blood came from. Cancel it instead.',
+      });
+    }
+
+    const result = await pool.query(
+      // The status is re-checked in the DELETE itself rather than
+      // trusted from the read above. Between the two, somebody could
+      // have pressed Start.
+      `DELETE FROM donor_drives WHERE drive_id = $1 AND status = 'planned'
+       RETURNING drive_id, title`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(409).json({
+        error: 'That drive changed while you were looking at it. Reload and try again.',
+      });
+    }
+    res.json({ deleted: true, drive_id: result.rows[0].drive_id, title: result.rows[0].title });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/drives/:id/log-unit - the core live-session action. Creates
 // `quantity` real inventory_unit rows (one donation can yield more than
 // one unit, e.g. a platelet apheresis session) and updates the donor's
@@ -313,6 +379,241 @@ router.get('/:id/log', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------
+// Drive downloads: the summary report and the raw log.
+//
+// Two endpoints rather than one, because they answer different
+// questions and the NGO page has a button for each.
+//
+//   /report  what happened at this drive, summarised. Four small tables:
+//            the drive itself, totals by blood type, totals by
+//            component, and collection by hour. This is the one you
+//            hand to a supervisor.
+//
+//   /logs    one row per unit, with the donor. This is the one you open
+//            in Excel when you need to check a specific donation.
+//
+// Both accept ?format=csv|xlsx|pdf. The formatting is the same code the
+// admin Reports page uses, so a drive report and a system report look
+// like they came from the same system, because they did.
+//
+// Note what is NOT here: no donor phone numbers or emails. A drive
+// report circulates, and the donor's identity beyond a name is not
+// something a summary needs to carry.
+// ---------------------------------------------------------------------
+
+/**
+ * Formats a Postgres DATE as YYYY-MM-DD without moving it a day.
+ *
+ * node-pg turns a DATE into a JS Date at LOCAL midnight, so on a server
+ * east of UTC, toISOString() rewinds past midnight and reports the day
+ * before: a drive on 2026-12-05 printed as 2026-12-04 on a server set
+ * to Asia/Dhaka. Reading the local components instead gives back the
+ * calendar date that was actually stored, which is the only thing a
+ * DATE ever meant.
+ */
+function isoDate(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function driveFileStem(drive, kind) {
+  const slug = String(drive.title || 'drive')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'drive';
+  const date = isoDate(drive.drive_date);
+  return `roktonet_${kind}_${slug}_${date}`;
+}
+
+function readFormat(req, res) {
+  const format = String(req.query.format || 'csv').toLowerCase();
+  if (!FORMATS.includes(format)) {
+    res.status(400).json({ error: `format must be one of ${FORMATS.join(', ')}` });
+    return null;
+  }
+  return format;
+}
+
+// GET /api/drives/:id/report?format=csv|xlsx|pdf
+router.get('/:id/report', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
+  const owned = await getOwnedDrive(req.params.id, req.user);
+  if (owned.error) return res.status(owned.error).json({ error: owned.message });
+  const format = readFormat(req, res);
+  if (!format) return undefined;
+  const drive = owned.drive;
+
+  try {
+    const [org, byType, byComponent, byHour, totals] = await Promise.all([
+      pool.query('SELECT name, district FROM organizations WHERE org_id = $1', [drive.org_id]),
+      pool.query(
+        `SELECT blood_type, COUNT(*)::int AS units,
+                COUNT(DISTINCT donor_id)::int AS donors
+           FROM inventory_units WHERE drive_id = $1
+          GROUP BY blood_type ORDER BY units DESC, blood_type`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT component, COUNT(*)::int AS units
+           FROM inventory_units WHERE drive_id = $1
+          GROUP BY component ORDER BY units DESC`,
+        [req.params.id]
+      ),
+      pool.query(
+        // date_trunc to the hour, so the shape of the day is visible
+        // without turning the report into a per-minute list.
+        `SELECT to_char(date_trunc('hour', created_at), 'YYYY-MM-DD HH24:00') AS hour,
+                COUNT(*)::int AS units
+           FROM inventory_units WHERE drive_id = $1
+          GROUP BY 1 ORDER BY 1`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS units, COUNT(DISTINCT donor_id)::int AS donors
+           FROM inventory_units WHERE drive_id = $1`,
+        [req.params.id]
+      ),
+    ]);
+
+    const o = org.rows[0] || {};
+    const t = totals.rows[0] || { units: 0, donors: 0 };
+    const target = drive.target_units;
+
+    const overviewRows = [
+      { field: 'Drive', value: drive.title },
+      { field: 'Organization', value: o.name || '' },
+      { field: 'District', value: o.district || '' },
+      { field: 'Location', value: drive.location },
+      { field: 'Date', value: isoDate(drive.drive_date) },
+      { field: 'Status', value: drive.status },
+      { field: 'Started', value: drive.started_at ? cell(drive.started_at) : 'not started' },
+      { field: 'Finished', value: drive.completed_at ? cell(drive.completed_at) : 'not finished' },
+      { field: 'Target units', value: target === null || target === undefined ? 'none set' : target },
+      { field: 'Units collected', value: t.units },
+      { field: 'Donors', value: t.donors },
+      {
+        field: 'Against target',
+        // Reported as a plain fraction and only when a target exists.
+        // A percentage of nothing is a division by zero dressed up as a
+        // statistic.
+        value: target ? `${t.units} of ${target} (${Math.round((t.units / target) * 100)}%)` : 'no target set',
+      },
+    ];
+
+    return sendDatasets(res, {
+      stem: driveFileStem(drive, 'drive_report'),
+      title: `RoktoNet drive report: ${drive.title}`,
+      format,
+      subtitle: `${drive.title}  |  ${isoDate(drive.drive_date)}`,
+      sets: [
+        {
+          name: 'overview',
+          dataset: {
+            title: 'Drive overview',
+            columns: [{ key: 'field', header: 'Field' }, { key: 'value', header: 'Value' }],
+          },
+          rows: overviewRows,
+        },
+        {
+          name: 'by_blood_type',
+          dataset: {
+            title: 'Collected by blood type',
+            columns: [
+              { key: 'blood_type', header: 'Blood type' },
+              { key: 'units', header: 'Units' },
+              { key: 'donors', header: 'Donors' },
+            ],
+          },
+          rows: byType.rows,
+        },
+        {
+          name: 'by_component',
+          dataset: {
+            title: 'Collected by component',
+            columns: [
+              { key: 'component', header: 'Component' },
+              { key: 'units', header: 'Units' },
+            ],
+          },
+          rows: byComponent.rows,
+        },
+        {
+          name: 'by_hour',
+          dataset: {
+            title: 'Collection by hour',
+            columns: [
+              { key: 'hour', header: 'Hour' },
+              { key: 'units', header: 'Units' },
+            ],
+          },
+          rows: byHour.rows,
+        },
+      ],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/drives/:id/logs?format=csv|xlsx|pdf
+//
+// Named /logs, next to the existing JSON /log that the Drive Log page
+// reads. Same rows, written to a file instead of the screen.
+router.get('/:id/logs', requireAuth, requireRole('ngo', 'admin'), async (req, res) => {
+  const owned = await getOwnedDrive(req.params.id, req.user);
+  if (owned.error) return res.status(owned.error).json({ error: owned.message });
+  const format = readFormat(req, res);
+  if (!format) return undefined;
+  const drive = owned.drive;
+
+  try {
+    const result = await pool.query(
+      `SELECT to_char(iu.created_at, 'YYYY-MM-DD HH24:MI:SS') AS logged_at,
+              d.full_name AS donor_name, iu.blood_type, iu.component,
+              to_char(iu.collection_date, 'YYYY-MM-DD') AS collection_date,
+              to_char(iu.expiry_date, 'YYYY-MM-DD')     AS expiry_date,
+              iu.status, iu.unit_id
+         FROM inventory_units iu
+         JOIN donors d ON d.donor_id = iu.donor_id
+        WHERE iu.drive_id = $1
+        ORDER BY iu.created_at ASC`,
+      [req.params.id]
+    );
+
+    return sendDatasets(res, {
+      stem: driveFileStem(drive, 'drive_log'),
+      title: `RoktoNet drive log: ${drive.title}`,
+      format,
+      subtitle: `${drive.title}  |  ${isoDate(drive.drive_date)}`,
+      sets: [
+        {
+          name: 'units',
+          dataset: {
+            title: 'Units logged',
+            columns: [
+              { key: 'logged_at', header: 'Logged at' },
+              { key: 'donor_name', header: 'Donor' },
+              { key: 'blood_type', header: 'Blood type' },
+              { key: 'component', header: 'Component' },
+              { key: 'collection_date', header: 'Collected' },
+              { key: 'expiry_date', header: 'Expires' },
+              { key: 'status', header: 'Status' },
+              { key: 'unit_id', header: 'Unit ID' },
+            ],
+          },
+          rows: result.rows,
+        },
+      ],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

@@ -26,12 +26,14 @@ import NewDrive from './pages/ngo/NewDrive';
 import DriveDetail from './pages/ngo/DriveDetail';
 import DriveLog from './pages/ngo/DriveLog';
 import NgoMobilizations from './pages/ngo/Mobilizations';
+import NgoScheduler from './pages/ngo/Scheduler';
 import DonorOverview from './pages/donor/Overview';
 import DonationHistory from './pages/donor/DonationHistory';
 import MyInvites from './pages/donor/MyInvites';
 import MyNgo from './pages/donor/MyNgo';
 import DonorNgoDetail from './pages/donor/NgoDetail';
 import BrowseDrives from './pages/donor/BrowseDrives';
+import DonorDrivesCalendar from './pages/donor/DrivesCalendar';
 import DriveInfo from './pages/donor/DriveInfo';
 import MyProfile from './pages/MyProfile';
 import AdminOverview from './pages/admin/Overview';
@@ -289,6 +291,18 @@ export default function App() {
             }
           />
           <Route
+            path="/ngo/scheduler"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['ngo']}>
+                  <AppShell crumbs={['NGO', 'Scheduler']}>
+                    <NgoScheduler />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/ngo/drives"
             element={
               <ProtectedRoute>
@@ -473,6 +487,18 @@ export default function App() {
                 <RoleRoute allowedRoles={['donor']}>
                   <AppShell crumbs={['Donor', 'My NGO', 'Detail']}>
                     <DonorNgoDetail />
+                  </AppShell>
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/donor/calendar"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['donor']}>
+                  <AppShell crumbs={['Donor', 'Drive Calendar']}>
+                    <DonorDrivesCalendar />
                   </AppShell>
                 </RoleRoute>
               </ProtectedRoute>

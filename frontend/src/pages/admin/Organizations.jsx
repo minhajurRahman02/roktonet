@@ -19,6 +19,7 @@ import { createOrganization } from '../../api/admin';
 import DatalistInput from '../../components/atoms/DatalistInput';
 import { getDistricts, getThanas } from '../../api/locations';
 import { ORG_TYPES } from '../../constants/blood';
+import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
 
 function InviteCode({ code }) {
   const [shown, setShown] = useState(false);
@@ -39,7 +40,7 @@ const EMPTY = { name: '', org_type: 'hospital', district: '', thana: '', contact
 
 export default function AdminOrganizations() {
   const [filters, setFilters] = useState({ search: '', org_type: '', district: '' });
-  const [applied, setApplied] = useState({});
+  const applied = useDebouncedFilters(filters);
   const orgs = usePaginatedAsync(
     ({ page, per_page }) => listOrganizations({ ...applied, page, per_page }),
     [applied],
@@ -68,7 +69,7 @@ export default function AdminOrganizations() {
   const [notice, setNotice] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const apply = (e) => { e.preventDefault(); setApplied(Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ''))); };
+  const apply = (e) => e.preventDefault();
   const openCreate = () => { setForm(EMPTY); setErr(''); setModal('create'); };
   const openEdit = (o) => { setForm({ name: o.name, org_type: o.org_type, district: o.district || '', thana: o.thana || '', contact_phone: o.contact_phone || '', contact_email: o.contact_email || '' }); setErr(''); setModal(o); };
 

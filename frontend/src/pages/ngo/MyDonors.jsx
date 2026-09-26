@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/molecules/PageHeader';
 import LoadingState from '../../components/molecules/LoadingState';
@@ -10,29 +10,30 @@ import Button from '../../components/atoms/Button';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { listDonors } from '../../api/donors';
 import { formatEligibility } from '../../utils/eligibility';
+import { useDebouncedValue } from '../../hooks/useDebouncedFilters';
 
 export default function MyDonors() {
   const navigate = useNavigate();
-  const [phone, setPhone] = useState('');
-  // 7.7a: the 300ms debounce is preserved, but it now lives in its own
-  // state rather than in the loader's useEffect.
+  const [query, setQuery] = useState('');
+  // The 300ms debounce this page already had, now from the shared hook
+  // so every search in RoktoNet waits the same amount of time.
   //
-  // The old version debounced by delaying the fetch itself. usePaginatedAsync
-  // fetches whenever its deps change, so debouncing has to happen one level
-  // up: `phone` updates on every keystroke for the input's sake, and
-  // `debouncedPhone` trails it, and only THAT feeds the query. Without this
-  // split, typing an 11-digit number would fire 11 requests and 11 page
+  // Why the debounce has to live here rather than inside the loader:
+  // usePaginatedAsync fetches whenever its deps change, so `query`
+  // updates on every keystroke for the input's sake and
+  // `debouncedQuery` trails it, and only THAT feeds the query. Without
+  // the split, typing an 11-digit number is 11 requests and 11 page
   // resets.
-  const [debouncedPhone, setDebouncedPhone] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
 
-  useEffect(() => {
-    const timeout = setTimeout(() => setDebouncedPhone(phone), 300);
-    return () => clearTimeout(timeout);
-  }, [phone]);
-
+  // `search` rather than `phone`: the same box now finds a donor by
+  // name or email as well, and matches a phone number whichever way it
+  // is punctuated. Searching a roster by phone alone assumed the
+  // volunteer already had the number, which at a drive is usually the
+  // thing they are trying to look up.
   const filters = useMemo(
-    () => (debouncedPhone ? { phone: debouncedPhone } : {}),
-    [debouncedPhone]
+    () => (debouncedQuery.trim() ? { search: debouncedQuery.trim() } : {}),
+    [debouncedQuery]
   );
 
   const donors = usePaginatedAsync(
@@ -45,7 +46,7 @@ export default function MyDonors() {
     <div className="p-6">
       <PageHeader
         title="My Donors"
-        subtitle="Everyone in your roster. Search by phone to find someone fast."
+        subtitle="Everyone in your roster. Search by name, phone or email to find someone fast."
         action={
           <Link to="/ngo/donors/register">
             <Button variant="primary">Register donor</Button>
@@ -55,9 +56,9 @@ export default function MyDonors() {
 
       <Input
         type="text"
-        placeholder="Search by phone number..."
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
+        placeholder="Search by name, phone or email…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
         className="w-full sm:w-80 mb-4"
       />
 
