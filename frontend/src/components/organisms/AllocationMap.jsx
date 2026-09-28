@@ -1,35 +1,42 @@
 import PropTypes from 'prop-types';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { loadDistrictGeo, makeProjector, projectFeatures, buildCentroids } from '../../utils/districtGeo';
 
 // Where blood actually moved, drawn on the country.
 //
 // ============================ READ THIS FIRST ============================
-// THE GEOMETRY BELOW IS A PLACEHOLDER AND IS LABELLED AS ONE ON SCREEN.
+// WHY THE NODES ARE STILL DIVISION-LEVEL EVEN WITH A REAL GEOJSON LOADED
 //
-// RoktoNet stores no coordinates. bd_thanas is (thana_id, name, district)
-// and nothing anywhere holds a latitude. So the map needs geometry from
-// outside the system, and until that file exists this component places each
-// flow at its DIVISION, of which there are eight and whose relative
-// positions are not in dispute.
+// organizations.district holds one of 8 division names ("Dhaka",
+// "Chittagong", ...), not a real district. migration_location.sql added
+// the 64-district table (bd_thanas) and the thana columns, but deliberately
+// did NOT reseed organizations.district down to that granularity -- it is
+// flagged in that migration as a separate coordinated reseed, not done
+// there. Confirmed live: `select distinct district from organizations`
+// returns exactly 8 rows.
 //
-// TO SWAP IN THE REAL MAP
+// So a flow's from_district/to_district will only ever be one of those 8
+// names until that reseed happens, whatever precision the map underneath
+// them has. This component draws the real district boundaries once the
+// geo file is present -- genuinely more honest than the hand-drawn outline
+// it replaces -- and uses real geometric centroids for the 8 division
+// points instead of eyeballed ones. It does not invent district-level
+// nodes the underlying data cannot back up.
 //
-//   1. Put a district GeoJSON at frontend/public/bd-districts.json
-//   2. It needs a FeatureCollection whose features carry a district name
-//      property matching organizations.district, with Polygon or
-//      MultiPolygon geometry in [lon, lat]
-//   3. Replace DIVISION_POINTS with centroids derived from that file, and
-//      render the polygons behind the nodes
-//   4. Delete the placeholder banner in the parent component
+// TO GO FULLY DISTRICT-LEVEL
 //
-// Nothing else changes: flows already arrive as district names, and the arc
-// drawing works off whatever point lookup it is given.
+// Reseed organizations.district (and request/allocation records that
+// reference it) to real district names, coordinated with the team per
+// Section 15's TRUNCATE norm. Nothing in this component would need to
+// change afterward -- pointFor() already prefers an exact district match
+// over the division fallback.
 // =========================================================================
 
 // The eight divisional capitals, in a normalised 0..1 box over the country.
-// Positions are relative rather than projected: what has to be true is that
-// Rangpur reads as north, Chattogram as south-east, Khulna as south-west,
-// and Dhaka as central. It is not a projection and does not pretend to be.
+// Used only until frontend/public/bd-districts.json loads successfully;
+// once it does, these are replaced by centroids computed from the real
+// file. Kept as the fallback so the map still renders something sensible
+// if the file is missing, slow, or fails to parse.
 const DIVISION_POINTS = {
   Rangpur: { x: 0.33, y: 0.14 },
   Mymensingh: { x: 0.49, y: 0.28 },
@@ -41,37 +48,52 @@ const DIVISION_POINTS = {
   Chattogram: { x: 0.68, y: 0.71 },
 };
 
-// Districts whose name is not its own division. Only the ones RoktoNet's
-// own seed and thana data actually use are listed; anything unlisted falls
-// through to a name match against the divisions above, and anything that
-// still fails to place is counted and reported rather than dropped.
+// All 64 official districts mapped to their division, sourced from the
+// same seed_bd_thanas.sql list bd_thanas is built from. A district whose
+// name equals its division's ("Dhaka" district in Dhaka division, and
+// likewise for Rajshahi, Khulna, Sylhet, Rangpur, Mymensingh, Chattogram)
+// is intentionally listed too, so buildCentroids() folds it into the
+// average along with every other district rather than needing a separate
+// identity rule.
 const DISTRICT_TO_DIVISION = {
-  Gazipur: 'Dhaka', Narayanganj: 'Dhaka', Tangail: 'Dhaka', Munshiganj: 'Dhaka',
-  Manikganj: 'Dhaka', Narsingdi: 'Dhaka', Faridpur: 'Dhaka', Kishoreganj: 'Dhaka',
-  Bogra: 'Rajshahi', Bogura: 'Rajshahi', Pabna: 'Rajshahi', Natore: 'Rajshahi',
-  Sirajganj: 'Rajshahi', Naogaon: 'Rajshahi',
-  Jessore: 'Khulna', Jashore: 'Khulna', Kushtia: 'Khulna', Satkhira: 'Khulna',
-  Bagerhat: 'Khulna',
-  Comilla: 'Chattogram', Cumilla: 'Chattogram', Coxsbazar: 'Chattogram',
-  "Cox's Bazar": 'Chattogram', Feni: 'Chattogram', Noakhali: 'Chattogram',
-  Dinajpur: 'Rangpur', Lalmonirhat: 'Rangpur', Nilphamari: 'Rangpur',
-  Moulvibazar: 'Sylhet', Habiganj: 'Sylhet', Sunamganj: 'Sylhet',
-  Patuakhali: 'Barishal', Bhola: 'Barishal', Jhalakathi: 'Barishal',
-  Jhalokati: 'Barishal', Barisal: 'Barishal',
+  // Dhaka
+  Dhaka: 'Dhaka', Faridpur: 'Dhaka', Gazipur: 'Dhaka', Gopalganj: 'Dhaka',
+  Kishoreganj: 'Dhaka', Madaripur: 'Dhaka', Manikganj: 'Dhaka', Munshiganj: 'Dhaka',
+  Narayanganj: 'Dhaka', Narsingdi: 'Dhaka', Rajbari: 'Dhaka', Shariatpur: 'Dhaka',
+  Tangail: 'Dhaka',
+  // Chattogram
+  Chattogram: 'Chattogram', Bandarban: 'Chattogram', Brahmanbaria: 'Chattogram',
+  Chandpur: 'Chattogram', Comilla: 'Chattogram', Cumilla: 'Chattogram',
+  Coxsbazar: 'Chattogram', "Cox's Bazar": 'Chattogram', Feni: 'Chattogram',
+  Khagrachhari: 'Chattogram', Lakshmipur: 'Chattogram', Noakhali: 'Chattogram',
+  Rangamati: 'Chattogram',
+  // Rajshahi
+  Rajshahi: 'Rajshahi', Bogra: 'Rajshahi', Bogura: 'Rajshahi', Chapainawabganj: 'Rajshahi',
+  Joypurhat: 'Rajshahi', Naogaon: 'Rajshahi', Natore: 'Rajshahi', Pabna: 'Rajshahi',
+  Sirajganj: 'Rajshahi',
+  // Khulna
+  Khulna: 'Khulna', Bagerhat: 'Khulna', Chuadanga: 'Khulna', Jessore: 'Khulna',
+  Jashore: 'Khulna', Jhenaidah: 'Khulna', Kushtia: 'Khulna', Magura: 'Khulna',
+  Meherpur: 'Khulna', Narail: 'Khulna', Satkhira: 'Khulna',
+  // Barishal (division name spelled with 'h'; the district itself is "Barisal")
+  Barisal: 'Barishal', Barguna: 'Barishal', Bhola: 'Barishal',
+  Jhalakathi: 'Barishal', Jhalokati: 'Barishal', Patuakhali: 'Barishal', Pirojpur: 'Barishal',
+  // Sylhet
+  Sylhet: 'Sylhet', Habiganj: 'Sylhet', Moulvibazar: 'Sylhet', Sunamganj: 'Sylhet',
+  // Rangpur
+  Rangpur: 'Rangpur', Dinajpur: 'Rangpur', Gaibandha: 'Rangpur', Kurigram: 'Rangpur',
+  Lalmonirhat: 'Rangpur', Nilphamari: 'Rangpur', Panchagarh: 'Rangpur', Thakurgaon: 'Rangpur',
+  // Mymensingh
+  Mymensingh: 'Mymensingh', Jamalpur: 'Mymensingh', Netrokona: 'Mymensingh', Sherpur: 'Mymensingh',
 };
 
 const VB = { w: 420, h: 480 };
 
-function pointFor(district) {
-  const division = DISTRICT_TO_DIVISION[district] || district;
-  const p = DIVISION_POINTS[division];
-  if (!p) return null;
-  return { x: p.x * VB.w, y: p.y * VB.h };
-}
-
-// An indicative national outline. Deliberately simple: a wrong-but-detailed
-// coastline would look like a real map and invite the reader to trust it.
-const OUTLINE = 'M150,40 L205,34 L238,52 L262,44 L286,62 L300,96 L288,126 L300,150 L292,182 '
+// The hand-drawn placeholder outline. Deliberately simple: a wrong-but-
+// detailed coastline would look like a real map and invite the reader to
+// trust it more than a rough approximation deserves. Used only as long as
+// the real geo file has not loaded.
+const PLACEHOLDER_OUTLINE = 'M150,40 L205,34 L238,52 L262,44 L286,62 L300,96 L288,126 L300,150 L292,182 '
   + 'L312,196 L322,232 L300,258 L308,288 L286,316 L300,352 L286,392 L262,420 '
   + 'L236,406 L210,420 L186,404 L160,414 L140,390 L150,356 L130,330 L142,300 '
   + 'L120,272 L132,240 L112,210 L126,178 L108,148 L124,116 L112,86 L134,62 Z';
@@ -80,7 +102,53 @@ const URGENCY_STROKE = {
   critical: '#A9382F', urgent: '#B8811F', routine: '#5B7A8C', elective: '#6B9080', restock: '#5B7A8C',
 };
 
+/**
+ * Loads and projects the district geo once, independent of any particular
+ * set of flows. Returns null (not an error state) until it either finishes
+ * or gives up, so the map can render immediately off DIVISION_POINTS and
+ * upgrade in place if the file shows up.
+ */
+function useDistrictGeo() {
+  const [geo, setGeo] = useState(null); // { paths, divisionPoints } | null
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const raw = await loadDistrictGeo();
+      if (!raw || cancelled) return;
+
+      const project = makeProjector(raw.bbox, raw.meanLat, VB.w, VB.h);
+      const paths = projectFeatures(raw, project);
+      const { divisionCentroids } = buildCentroids(raw, project, DISTRICT_TO_DIVISION);
+
+      // Need every one of the 8 divisions represented, or a flow could
+      // point at a division the file's district set didn't produce a
+      // centroid for. Falls back to the hand-placed point for any that are
+      // missing rather than dropping the whole upgrade over one gap.
+      const complete = Object.keys(DIVISION_POINTS).every((d) => divisionCentroids[d]);
+      if (!complete) return;
+
+      if (!cancelled) setGeo({ paths, divisionPoints: divisionCentroids });
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return geo;
+}
+
 export default function AllocationMap({ flows }) {
+  const geo = useDistrictGeo();
+  const divisionPoints = geo?.divisionPoints || DIVISION_POINTS;
+
+  function pointFor(district) {
+    const division = DISTRICT_TO_DIVISION[district] || district;
+    const p = divisionPoints[division];
+    if (!p) return null;
+    // The hand-placed fallback is normalised 0..1; real centroids from
+    // buildCentroids() already come back in VB units.
+    return geo ? p : { x: p.x * VB.w, y: p.y * VB.h };
+  }
+
   const { arcs, nodes, unplaced } = useMemo(() => {
     const placed = [];
     let missed = 0;
@@ -114,12 +182,16 @@ export default function AllocationMap({ flows }) {
     });
 
     return { arcs: placed, nodes: Array.from(seen.values()), unplaced: missed };
-  }, [flows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flows, geo]);
 
   return (
     <div className="relative bg-paper dark:bg-paper-dark">
+      {/* Two different honest labels rather than one that disappears once
+          a file exists. Precision changed; the nodes' real granularity did
+          not, and organizations.district is why -- see the header comment. */}
       <div className="absolute top-3 left-3 z-10 mono text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/50">
-        PLACEHOLDER GEOMETRY
+        {geo ? 'DIVISION-LEVEL ALLOCATION DATA' : 'PLACEHOLDER GEOMETRY'}
       </div>
 
       <svg
@@ -136,7 +208,13 @@ export default function AllocationMap({ flows }) {
           </linearGradient>
         </defs>
 
-        <path d={OUTLINE} fill="#1C4A3D" fillOpacity="0.07" stroke="#1C4A3D" strokeOpacity="0.3" strokeWidth="1.5" />
+        {geo ? (
+          geo.paths.map((p) => (
+            <path key={p.district} d={p.d} fill="#1C4A3D" fillOpacity="0.06" stroke="#1C4A3D" strokeOpacity="0.22" strokeWidth="0.8" />
+          ))
+        ) : (
+          <path d={PLACEHOLDER_OUTLINE} fill="#1C4A3D" fillOpacity="0.07" stroke="#1C4A3D" strokeOpacity="0.3" strokeWidth="1.5" />
+        )}
 
         {arcs.map((a) => (
           <path key={a.id} id={a.id} d={a.d} fill="none" stroke="url(#alloc-arc)" strokeWidth="1.6" strokeOpacity="0.75" />
