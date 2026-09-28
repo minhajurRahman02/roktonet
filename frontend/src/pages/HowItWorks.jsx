@@ -20,6 +20,9 @@ import { useReveal } from '../hooks/useReveal';
 
 function Step({ n, tone, title, body, footnote, children, last }) {
   const ref = useReveal();
+  // The panel gets a reveal of its own rather than riding the row's. See
+  // .hiw-panel in index.css for why it cannot just use .reveal.
+  const panelRef = useReveal({ enterClass: 'hiw-panel' });
   return (
     <li ref={ref} className="grid md:grid-cols-[auto_1fr_1fr] gap-6 items-center">
       <div className="flex md:flex-col items-center gap-3 self-stretch">
@@ -37,8 +40,10 @@ function Step({ n, tone, title, body, footnote, children, last }) {
 
       {/* The depth. A single perspective on the wrapper rather than one per
           child, so the panels in a column share a vanishing point instead
-          of each having their own. */}
-      <div style={{ transform: 'perspective(900px) rotateY(-9deg) rotateX(2deg)' }}>
+          of each having their own. The angle lives in .hiw-panel rather
+          than in an inline style, because the same property is what
+          animates the panel in. */}
+      <div ref={panelRef}>
         {children}
       </div>
     </li>

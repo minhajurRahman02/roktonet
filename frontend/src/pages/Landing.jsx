@@ -7,6 +7,7 @@ import ImpactSection from '../components/organisms/ImpactSection';
 import BecomeDonorSection from '../components/organisms/BecomeDonorSection';
 import RoktimLaunchSection from '../components/organisms/RoktimLaunchSection';
 import LandingFooter from '../components/organisms/LandingFooter';
+import BackToTopButton from '../components/atoms/BackToTopButton';
 
 // Section order is the argument the page makes, in order:
 //
@@ -36,6 +37,7 @@ export default function Landing() {
       <BecomeDonorSection />
       <RoktimLaunchSection />
       <LandingFooter />
+      <BackToTopButton />
     </div>
   );
 }

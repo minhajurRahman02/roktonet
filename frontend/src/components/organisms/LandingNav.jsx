@@ -2,16 +2,23 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Sun, Moon } from 'lucide-react';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import SectionLink from '../molecules/SectionLink';
 
-// Anchors scroll within the landing page; `to` navigates to a real route.
-// "How it works" and "About us" were both anchors to nothing before; they
-// are pages now.
+// `section` is a section of the landing page, `to` is a real route.
+//
+// The sections used to be bare '#impact' anchors, which worked on the
+// landing page and did nothing at all on the three pages that share this
+// nav: the browser resolved them against the current page, where no such
+// anchor exists. SectionLink writes them landing-relative and scrolls on
+// arrival.
 const NAV_LINKS = [
   { to: '/how-it-works', label: 'How it works' },
-  { href: '#impact', label: 'Impact' },
-  { href: '#become-donor', label: 'Become a donor' },
+  { section: 'impact', label: 'Impact' },
+  { section: 'become-donor', label: 'Become a donor' },
   { to: '/about', label: 'About us' },
 ];
+
+const NAV_LINK_CLASS = 'hover:text-primary dark:hover:text-white transition-colors duration-300';
 
 export default function LandingNav() {
   const [isDark, setIsDark] = useDarkMode();
@@ -41,7 +48,10 @@ export default function LandingNav() {
       style={{ transform: hidden ? 'translateY(-100%)' : 'translateY(0)' }}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <a href="#top" className="flex items-center gap-2.5">
+        {/* The wordmark goes to the top of the LANDING page, not the top of
+            whatever page you happen to be on. As a bare '#top' anchor it
+            did the latter, which on /about read as a broken home link. */}
+        <SectionLink id="top" className="flex items-center gap-2.5">
           {/* LOGO SLOT.
               Swap the <svg> below for <img src="/logo.svg" alt="" className="w-full h-full object-contain" />
               once the real mark exists. The 32px rounded square and the
@@ -54,17 +64,17 @@ export default function LandingNav() {
             </svg>
           </span>
           <span className="font-display font-bold text-xl text-primary dark:text-textprimary-dark">RoktoNet</span>
-        </a>
+        </SectionLink>
 
         <div className="hidden md:flex items-center gap-7 text-sm font-medium text-gray-600 dark:text-textsecondary-dark">
           {NAV_LINKS.map((link) => (link.to ? (
-            <Link key={link.label} to={link.to} className="hover:text-primary dark:hover:text-white transition-colors duration-300">
+            <Link key={link.label} to={link.to} className={NAV_LINK_CLASS}>
               {link.label}
             </Link>
           ) : (
-            <a key={link.label} href={link.href} className="hover:text-primary dark:hover:text-white transition-colors duration-300">
+            <SectionLink key={link.label} id={link.section} className={NAV_LINK_CLASS}>
               {link.label}
-            </a>
+            </SectionLink>
           )))}
 
           {/* Roktim carries its own colour here, which nothing else in the
@@ -72,12 +82,12 @@ export default function LandingNav() {
               RoktoNet, and the link should say so before you click it. The
               sparks are positioned rather than laid out so they can sit
               outside the text box without affecting the nav's spacing. */}
-          <a href="#roktim" className="rkl-nav-link relative font-semibold">
+          <SectionLink id="roktim" className="rkl-nav-link relative font-semibold">
             <span className="rkl-grad-text">Roktim</span>
             <span className="rk-sparkle" style={{ width: 3, height: 3, top: -3, left: 6, animationDelay: '0s' }} />
             <span className="rk-sparkle" style={{ width: 2, height: 2, top: 2, right: -4, animationDelay: '.9s' }} />
             <span className="rk-sparkle" style={{ width: 2.5, height: 2.5, bottom: -2, left: 22, animationDelay: '1.7s' }} />
-          </a>
+          </SectionLink>
         </div>
 
         <div className="flex items-center gap-3">

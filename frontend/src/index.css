@@ -186,6 +186,56 @@ body {
 }
 
 /* =========================================================================
+   How it works: the right-hand panels.
+
+   These cannot use .reveal, and that is the whole reason this class exists.
+   .reveal animates `transform`, and these panels already carry a resting
+   perspective transform; whichever of the two wins, the other is lost. So
+   the resting angle is baked into both ends of this transition instead of
+   sitting in an inline style, and the panel swings from a steeper angle out
+   to the right into its resting position.
+
+   It also runs separately from the row's own .reveal, slightly behind it:
+   the row arriving as one block left the panel looking static, because it
+   had no motion the eye could attribute to the panel itself.
+   ========================================================================= */
+.hiw-panel {
+  opacity: 0;
+  transform: perspective(900px) rotateY(-24deg) rotateX(2deg) translateX(38px) scale(.96);
+  transition: opacity .8s cubic-bezier(.22,.8,.26,1), transform .8s cubic-bezier(.22,.8,.26,1);
+  transition-delay: .14s;
+}
+.hiw-panel.is-in {
+  opacity: 1;
+  transform: perspective(900px) rotateY(-9deg) rotateX(2deg) translateX(0) scale(1);
+}
+
+/* Below the md breakpoint the row stacks, so the panel is full width and
+   there is no column for it to swing in from. Keeping the wide from-state
+   there pushes its corner about 9px past a 390px viewport and gives the
+   page a horizontal scrollbar, so the narrow layout gets a plain vertical
+   reveal at the resting angle instead. */
+@media (max-width: 767px) {
+  .hiw-panel {
+    transform: perspective(900px) rotateY(-9deg) rotateX(2deg) translateY(22px);
+  }
+  .hiw-panel.is-in {
+    transform: perspective(900px) rotateY(-9deg) rotateX(2deg) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Same belt-and-braces as .reveal above: without this the panels would
+     sit at opacity 0 forever. The resting angle is kept, since a static
+     transform is not motion. */
+  .hiw-panel {
+    opacity: 1 !important;
+    transform: perspective(900px) rotateY(-9deg) rotateX(2deg) !important;
+    transition: none;
+  }
+}
+
+/* =========================================================================
    Roktim on the landing page (Phase 7.6).
 
    EVERY CLASS HERE IS PREFIXED rkl- ON PURPOSE. src/roktim/ already owns

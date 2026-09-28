@@ -33,12 +33,19 @@ const MAX_STAGGER_STEPS = 6;
 /**
  * Returns a ref to put on a container.
  *
- * @param {{ stagger?: boolean }} [options] - stagger: reveal the
- *   container's direct children one after another instead of the container
- *   as a single block. Use it for card grids; leave it off for a heading.
+ * @param {{ stagger?: boolean, enterClass?: string }} [options]
+ *   stagger: reveal the container's direct children one after another
+ *     instead of the container as a single block. Use it for card grids;
+ *     leave it off for a heading.
+ *   enterClass: the class that holds the from-state, defaulting to
+ *     '.reveal'. An element that already carries a transform of its own
+ *     cannot use '.reveal', because '.reveal' animates transform and would
+ *     wipe that transform out; such an element gets its own class with the
+ *     resting transform baked into both ends. '.is-in' is added either way,
+ *     so every from-state class pairs with it.
  */
 export function useReveal(options = {}) {
-  const { stagger = false } = options;
+  const { stagger = false, enterClass = 'reveal' } = options;
   const ref = useRef(null);
 
   useEffect(() => {
@@ -48,7 +55,7 @@ export function useReveal(options = {}) {
     const targets = stagger ? Array.from(node.children) : [node];
 
     targets.forEach((el, i) => {
-      el.classList.add('reveal');
+      el.classList.add(enterClass);
       if (stagger) {
         el.style.transitionDelay = `${Math.min(i, MAX_STAGGER_STEPS) * STAGGER_MS}ms`;
       }
@@ -71,7 +78,7 @@ export function useReveal(options = {}) {
 
     targets.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [stagger]);
+  }, [stagger, enterClass]);
 
   return ref;
 }

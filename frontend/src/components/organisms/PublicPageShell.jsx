@@ -2,6 +2,7 @@ import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 import LandingNav from './LandingNav';
 import LandingFooter from './LandingFooter';
+import BackToTopButton from '../atoms/BackToTopButton';
 import { useReveal } from '../../hooks/useReveal';
 
 // Nav, hero band and footer for the public pages that are not the landing
@@ -46,6 +47,9 @@ export default function PublicPageShell({ title, lead, children, wide }) {
       <main className="flex-1">{children}</main>
 
       <LandingFooter />
+      {/* Same button as the landing page. How it works is the longest page
+          in the app, so if anywhere needs it, it is here. */}
+      <BackToTopButton />
     </div>
   );
 }

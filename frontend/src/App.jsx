@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './routing/ProtectedRoute';
 import RoleRoute from './routing/RoleRoute';
+import ScrollToHash from './routing/ScrollToHash';
 import AppShell from './components/organisms/AppShell';
 import Landing from './pages/Landing';
 import HowItWorks from './pages/HowItWorks';
@@ -77,6 +78,9 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        {/* Inside the router so it can read the location, outside Routes so
+            it survives every route change rather than remounting. */}
+        <ScrollToHash />
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<Landing />} />
