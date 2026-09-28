@@ -7,6 +7,7 @@ import ErrorState from '../molecules/ErrorState';
 import UrgencyBadge from '../atoms/UrgencyBadge';
 import Button from '../atoms/Button';
 import RequestTrackingModal from './RequestTrackingModal';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getRequest, getAllocation, confirmDelivery } from '../../api/requests';
 import { getMobilizationsForRequest } from '../../api/mobilizations';
 import { relativeTime } from '../../utils/relativeTime';
@@ -45,7 +46,7 @@ export default function RequestDetailView({ backTo, backLabel }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [trackingOpen, setTrackingOpen] = useState(false);
   const [confirmingOrgId, setConfirmingOrgId] = useState(null);
-  const [confirmError, setConfirmError] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   const load = useCallback(() => {
     setStatus('loading');
@@ -74,13 +75,13 @@ export default function RequestDetailView({ backTo, backLabel }) {
 
   async function handleConfirmArrival(orgId) {
     setConfirmingOrgId(orgId);
-    setConfirmError('');
     try {
       await confirmDelivery(request.request_id, orgId);
       const updated = await getAllocation(request.request_id);
       setAllocation(updated);
+      toastSuccess('Delivery confirmed.');
     } catch (err) {
-      setConfirmError(err.message);
+      popupError(err.message);
     } finally {
       setConfirmingOrgId(null);
     }
@@ -131,16 +132,21 @@ export default function RequestDetailView({ backTo, backLabel }) {
           <p className="mono text-xs text-gray-400">req_{request.request_id}</p>
         </div>
 
-        <div className="border-t border-gray-100 dark:border-white/10 p-5 grid grid-cols-3 gap-4 text-sm">
+        {/* gap-6 rather than gap-4, and the fulfillment path allowed to wrap
+            (break-words) rather than forced onto one line: mono text for
+            the longest value here, "scheduled_donor_mobilization", sits
+            within a few px of the middle column's width at gap-4, so it
+            bled into "Submitted" instead of wrapping under itself. */}
+        <div className="border-t border-gray-100 dark:border-white/10 p-5 grid grid-cols-3 gap-6 text-sm">
           <div>
             <p className="text-xs text-gray-400 mb-1">Resolve status</p>
             <p className={`font-medium ${isResolved ? 'text-elective-text dark:text-elective-dtext' : 'text-gray-500 dark:text-textsecondary-dark'}`}>
               {isResolved ? 'Resolved' : 'Pending'}
             </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-gray-400 mb-1">Fulfillment path</p>
-            <p className="font-medium mono dark:text-textprimary-dark">{request.fulfillment_path || '—'}</p>
+            <p className="font-medium mono dark:text-textprimary-dark break-words">{request.fulfillment_path || '—'}</p>
           </div>
           <div>
             <p className="text-xs text-gray-400 mb-1">Submitted</p>
@@ -243,9 +249,6 @@ export default function RequestDetailView({ backTo, backLabel }) {
                 );
               })}
             </div>
-            {confirmError && (
-              <p className="text-xs text-critical-text dark:text-critical-dtext mt-2">{confirmError}</p>
-            )}
           </div>
         )}
 

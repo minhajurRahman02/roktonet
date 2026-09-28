@@ -5,6 +5,7 @@ import FormField from '../../components/molecules/FormField';
 import Input from '../../components/atoms/Input';
 import Button from '../../components/atoms/Button';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { createDrive } from '../../api/drives';
 
 export default function NewDrive() {
@@ -23,8 +24,8 @@ export default function NewDrive() {
     ? searchParams.get('date')
     : '';
   const [form, setForm] = useState({ title: '', location: '', drive_date: presetDate, target_units: '' });
-  const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toastSuccess, popupError } = useFeedback();
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -32,10 +33,9 @@ export default function NewDrive() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
 
     if (!form.title.trim() || !form.location.trim() || !form.drive_date) {
-      setError('Title, location, and drive date are required.');
+      popupError('Title, location, and drive date are required.');
       return;
     }
 
@@ -48,9 +48,10 @@ export default function NewDrive() {
         drive_date: form.drive_date,
         target_units: form.target_units ? Number(form.target_units) : undefined,
       });
+      toastSuccess('Drive created.');
       navigate('/ngo/drives');
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -78,10 +79,6 @@ export default function NewDrive() {
             <Input id="target_units" type="number" min="1" placeholder="Optional" value={form.target_units} onChange={(e) => updateField('target_units', e.target.value)} />
           </FormField>
         </div>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Creating…' : 'Create drive'}

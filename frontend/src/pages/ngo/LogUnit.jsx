@@ -6,6 +6,7 @@ import ErrorState from '../../components/molecules/ErrorState';
 import Select from '../../components/atoms/Select';
 import Input from '../../components/atoms/Input';
 import Button from '../../components/atoms/Button';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getDonor } from '../../api/donors';
 import { getDrive, logUnit } from '../../api/drives';
 import { getEligibility } from '../../utils/eligibility';
@@ -24,7 +25,7 @@ export default function LogUnit() {
   const [component, setComponent] = useState('whole_blood');
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
+  const { toastSuccess, popupError } = useFeedback();
 
   useEffect(() => {
     Promise.all([getDonor(donorId), getDrive(driveId)])
@@ -41,7 +42,6 @@ export default function LogUnit() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setSubmitError(null);
     setSubmitting(true);
     try {
       await logUnit(driveId, {
@@ -50,9 +50,10 @@ export default function LogUnit() {
         component,
         quantity: Number(quantity),
       });
+      toastSuccess('Unit logged.');
       navigate(`/ngo/drives/${driveId}`);
     } catch (err) {
-      setSubmitError(err.message);
+      popupError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -123,10 +124,6 @@ export default function LogUnit() {
           <Input id="quantity" type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">More than 1 only applies to apheresis sessions that yield multiple units.</p>
         </FormField>
-
-        {submitError && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{submitError}</p>
-        )}
 
         <Button type="submit" variant="primary" loading={submitting} disabled={!eligibility.eligible} className="w-full">
           {submitting ? 'Updating…' : 'Update inventory'}

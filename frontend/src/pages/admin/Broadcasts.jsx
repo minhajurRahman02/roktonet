@@ -6,6 +6,7 @@ import EmptyState from '../../components/molecules/EmptyState';
 import Button from '../../components/atoms/Button';
 import Input from '../../components/atoms/Input';
 import { useAsync } from '../../hooks/useAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listUsers, previewBroadcast, sendBroadcast, listBroadcasts } from '../../api/admin';
 import { relativeTime } from '../../utils/relativeTime';
 
@@ -18,7 +19,7 @@ export default function AdminBroadcasts() {
   const [search, setSearch] = useState('');
   const [preview, setPreview] = useState(null);
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState({ ok: '', err: '' });
+  const { popupSuccess, popupError } = useFeedback();
   const allUsers = useAsync(() => listUsers({ is_active: 'true' }), []);
   const history = useAsync(() => listBroadcasts(), []);
 
@@ -48,13 +49,13 @@ export default function AdminBroadcasts() {
 
   const send = async (e) => {
     e.preventDefault();
-    setSending(true); setResult({ ok: '', err: '' });
+    setSending(true);
     try {
       const res = await sendBroadcast({ message: message.trim(), roles, user_ids: picked.map((p) => p.user_id) });
-      setResult({ ok: `Broadcast sent to ${res.recipient_count} recipient(s).`, err: '' });
       setMessage(''); setRoles([]); setPicked([]); setPreview(null);
       history.refresh();
-    } catch (err) { setResult({ ok: '', err: err.message }); } finally { setSending(false); }
+      popupSuccess(`Broadcast sent to ${res.recipient_count} recipient(s).`);
+    } catch (err) { popupError(err.message); } finally { setSending(false); }
   };
 
   const canSend = message.trim().length > 0 && (roles.length > 0 || picked.length > 0) && preview?.recipient_count > 0;
@@ -102,8 +103,6 @@ export default function AdminBroadcasts() {
             </p>
             <Button type="submit" disabled={!canSend} loading={sending}>Send broadcast</Button>
           </div>
-          {result.ok && <p className="text-sm text-elective-text dark:text-elective-dtext mt-3">{result.ok}</p>}
-          {result.err && <p className="text-sm text-critical-text dark:text-critical-dtext mt-3">{result.err}</p>}
         </form>
 
         <div className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-5 lg:col-span-2">

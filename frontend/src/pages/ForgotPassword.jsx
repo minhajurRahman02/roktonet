@@ -6,17 +6,17 @@ import AuthLayout from '../components/organisms/AuthLayout';
 import FormField from '../components/molecules/FormField';
 import Input from '../components/atoms/Input';
 import Button from '../components/atoms/Button';
+import { useFeedback } from '../context/FeedbackContext';
 import { forgotPassword } from '../api/auth';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState(null);
+  const { popupError } = useFeedback();
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
     setIsSubmitting(true);
     try {
       // Backend always returns the same generic message whether or not the
@@ -25,7 +25,7 @@ export default function ForgotPassword() {
       await forgotPassword(email.trim());
       setSubmitted(true);
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -69,12 +69,6 @@ export default function ForgotPassword() {
         <FormField label="Email" htmlFor="email">
           <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </FormField>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">
-            {error}
-          </p>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Sending…' : 'Send reset link'}

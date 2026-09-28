@@ -7,6 +7,7 @@ import EmptyState from '../../components/molecules/EmptyState';
 import Pagination from '../../components/molecules/Pagination';
 import Button from '../../components/atoms/Button';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listMobilizations, respondToMobilization } from '../../api/mobilizations';
 
 const URGENCY_BORDER = { critical: '#A9382F', urgent: '#B8811F', routine: '#5B7A8C', elective: '#6B9080' };
@@ -18,10 +19,7 @@ const STATUS_STYLE = {
 
 export default function MyInvites() {
   const [respondingId, setRespondingId] = useState(null);
-  // 7.7a: accept/decline failures get their own slot rather than writing
-  // to the loader's error state. Previously a failed response replaced the
-  // whole invite list with an error screen, losing the other invites.
-  const [actionError, setActionError] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   const invites = usePaginatedAsync(
     ({ page, per_page }) => listMobilizations({ page, per_page }),
@@ -31,14 +29,14 @@ export default function MyInvites() {
 
   async function handleRespond(mobilizationId, inviteStatus) {
     setRespondingId(mobilizationId);
-    setActionError('');
     try {
       await respondToMobilization(mobilizationId, inviteStatus);
       // refresh, not reload: re-fetch in the background so the list does
       // not blank out to a skeleton the instant you click Accept.
       invites.refresh();
+      toastSuccess(inviteStatus === 'confirmed' ? 'Invite accepted.' : 'Invite declined.');
     } catch (err) {
-      setActionError(err.message);
+      popupError(err.message);
     } finally {
       setRespondingId(null);
     }
@@ -50,10 +48,6 @@ export default function MyInvites() {
         title="My Invites"
         subtitle="Requests you've been asked to help with. Hospital contact details are shown either way, so you can ask questions before deciding."
       />
-
-      {actionError && (
-        <p className="mb-4 text-sm text-critical-text dark:text-critical-dtext">{actionError}</p>
-      )}
 
       {invites.status === 'loading' && <LoadingState rows={4} />}
       {invites.status === 'error' && <ErrorState message={`Couldn't load your invites: ${invites.error}`} onRetry={invites.reload} />}

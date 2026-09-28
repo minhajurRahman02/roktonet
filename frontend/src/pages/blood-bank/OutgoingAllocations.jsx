@@ -6,6 +6,7 @@ import EmptyState from '../../components/molecules/EmptyState';
 import Pagination from '../../components/molecules/Pagination';
 import Button from '../../components/atoms/Button';
 import { useClientPagination } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listOutgoingAllocations } from '../../api/allocations';
 import { dispatchUnit } from '../../api/inventory';
 
@@ -34,7 +35,7 @@ export default function OutgoingAllocations() {
   const [allocations, setAllocations] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [dispatchingRequestId, setDispatchingRequestId] = useState(null);
-  const [dispatchError, setDispatchError] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   // 7.7a: this page keeps its own loader and pages CLIENT-SIDE, unlike
   // every other list in the project. That is deliberate, and it is about
@@ -71,14 +72,14 @@ export default function OutgoingAllocations() {
 
   async function handleDispatch(group) {
     setDispatchingRequestId(group.request_id);
-    setDispatchError('');
     try {
       const reservedUnits = group.units.filter((u) => u.status === 'reserved');
       await Promise.all(reservedUnits.map((u) => dispatchUnit(u.unit_id)));
       const updated = await listOutgoingAllocations();
       setAllocations(updated);
+      toastSuccess('Units dispatched.');
     } catch (err) {
-      setDispatchError(err.message);
+      popupError(err.message);
     } finally {
       setDispatchingRequestId(null);
     }
@@ -106,10 +107,6 @@ export default function OutgoingAllocations() {
   return (
     <div className="p-6">
       <PageHeader title="Outgoing Allocations" subtitle="Units from your inventory that have been matched to a hospital's request." />
-
-      {dispatchError && (
-        <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2 mb-4">{dispatchError}</p>
-      )}
 
       {groups.length === 0 ? (
         <EmptyState message="No units of yours have been allocated to a request yet." />

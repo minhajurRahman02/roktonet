@@ -6,6 +6,7 @@ import ErrorState from '../../components/molecules/ErrorState';
 import Button from '../../components/atoms/Button';
 import Modal from '../../components/admin/Modal';
 import DriveCalendar, { startOfMonth, calendarDate } from '../../components/organisms/DriveCalendar';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listDrives } from '../../api/drives';
 import { listDriveNotes, saveDriveNote } from '../../api/driveNotes';
 
@@ -33,7 +34,7 @@ export default function Scheduler() {
   const [noteDraft, setNoteDraft] = useState('');
   const [editingNote, setEditingNote] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
-  const [noteError, setNoteError] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   // The visible month, widened by a week either side, because the grid
   // shows the tail of the previous month and the head of the next one
@@ -81,18 +82,16 @@ export default function Scheduler() {
     setSelectedDate(dateKey);
     setNoteDraft(notes[dateKey] || '');
     setEditingNote(false);
-    setNoteError('');
   }
 
   function closeModal() {
     setSelectedDate(null);
     setEditingNote(false);
-    setNoteError('');
   }
 
   async function handleSaveNote() {
     setSavingNote(true);
-    setNoteError('');
+    const removed = !noteDraft.trim();
     try {
       await saveDriveNote(selectedDate, noteDraft);
       // Updated locally as well as reloaded, so the sticky-note marker
@@ -105,8 +104,9 @@ export default function Scheduler() {
         return next;
       });
       closeModal();
+      toastSuccess(removed ? 'Note removed.' : 'Note saved.');
     } catch (err) {
-      setNoteError(err.message);
+      popupError(err.message);
     } finally {
       setSavingNote(false);
     }
@@ -200,9 +200,6 @@ export default function Scheduler() {
               placeholder="Call the school about the hall, confirm 40 chairs"
               className="w-full rounded-lg border border-gray-300 dark:border-white/10 bg-white dark:bg-surface-dark px-3 py-2 text-sm dark:text-textprimary-dark focus:outline-none focus:ring-2 focus:ring-primary"
             />
-            {noteError && (
-              <p className="text-xs text-critical-text dark:text-critical-dtext mt-2">{noteError}</p>
-            )}
           </div>
         ) : (
           <div className="space-y-2">

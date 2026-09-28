@@ -5,23 +5,21 @@ import FormField from '../components/molecules/FormField';
 import Input from '../components/atoms/Input';
 import Button from '../components/atoms/Button';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { ROLE_HOME } from '../constants/roleHome';
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const { popupError } = useFeedback();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const [needsVerification, setNeedsVerification] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
-    setNeedsVerification(false);
     setIsSubmitting(true);
 
     try {
@@ -33,10 +31,8 @@ export default function Login() {
       const intendedDestination = location.state?.from;
       navigate(intendedDestination || ROLE_HOME[user.role] || '/hospital');
     } catch (err) {
-      setError(err.message);
-      if (err.data?.needs_verification) {
-        setNeedsVerification(true);
-      }
+      const hint = err.data?.needs_verification ? ' Check your inbox for the verification email we sent when you registered.' : '';
+      popupError(`${err.message}${hint}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -72,15 +68,6 @@ export default function Login() {
             Forgot password?
           </Link>
         </div>
-
-        {error && (
-          <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">
-            <p>{error}</p>
-            {needsVerification && (
-              <p className="mt-1 text-xs">Check your inbox for the verification email we sent when you registered.</p>
-            )}
-          </div>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Logging in…' : 'Log in'}

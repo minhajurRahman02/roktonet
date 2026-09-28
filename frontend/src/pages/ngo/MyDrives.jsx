@@ -9,6 +9,7 @@ import { Trash2 } from 'lucide-react';
 import Button from '../../components/atoms/Button';
 import Modal from '../../components/admin/Modal';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listDrives, startDrive, deleteDrive } from '../../api/drives';
 import { relativeTime } from '../../utils/relativeTime';
 
@@ -22,19 +23,18 @@ const STATUS_STYLE = {
 export default function MyDrives() {
   const navigate = useNavigate();
   const [startingId, setStartingId] = useState(null);
-  // 7.7a: a separate error slot for the Start action.
+  // 7.7a: a separate error slot for the delete dialog.
   //
-  // handleStart used to call setErrorMessage, the same state the loader
-  // wrote to, so a failed start replaced the whole list with an error
-  // screen. usePaginatedAsync owns the load error now, which forced the
-  // two apart -- and they should have been separate anyway: failing to
-  // start one drive is no reason to hide the other nine.
-  const [actionError, setActionError] = useState('');
+  // Shown inside the dialog rather than behind it, since the server
+  // refuses a drive that has been started or has units logged, and
+  // that explanation is the whole point of the failure.
+  const [deleteError, setDeleteError] = useState('');
   // Deletion asks first. It is the only irreversible action on this
   // page, and the button sits next to Start drive, so a mis-click is
   // one pixel away from a destroyed plan.
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const { toastSuccess, popupError } = useFeedback();
 
   const drives = usePaginatedAsync(
     ({ page, per_page }) => listDrives({ page, per_page }),
@@ -44,16 +44,17 @@ export default function MyDrives() {
 
   async function handleDelete() {
     setDeleting(true);
-    setActionError('');
+    setDeleteError('');
     try {
       await deleteDrive(confirmDelete.drive_id);
       setConfirmDelete(null);
       drives.reload();
+      toastSuccess('Drive deleted.');
     } catch (err) {
       // Shown inside the dialog rather than behind it. The server
       // refuses a drive that has been started or has units logged, and
       // that explanation is the whole point of the failure.
-      setActionError(err.message);
+      setDeleteError(err.message);
     } finally {
       setDeleting(false);
     }
@@ -61,12 +62,11 @@ export default function MyDrives() {
 
   async function handleStart(driveId) {
     setStartingId(driveId);
-    setActionError('');
     try {
       await startDrive(driveId);
       navigate(`/ngo/drives/${driveId}`);
     } catch (err) {
-      setActionError(err.message);
+      popupError(err.message);
     } finally {
       setStartingId(null);
     }
@@ -83,10 +83,6 @@ export default function MyDrives() {
           </Link>
         }
       />
-
-      {actionError && (
-        <p className="mb-4 text-sm text-critical-text dark:text-critical-dtext">{actionError}</p>
-      )}
 
       {drives.status === 'loading' && <LoadingState rows={4} />}
       {drives.status === 'error' && <ErrorState message={`Couldn't load your drives: ${drives.error}`} onRetry={drives.reload} />}
@@ -117,7 +113,7 @@ export default function MyDrives() {
                   <div className="flex items-center gap-2 self-start sm:self-auto">
                     <button
                       type="button"
-                      onClick={() => { setActionError(''); setConfirmDelete(drive); }}
+                      onClick={() => { setDeleteError(''); setConfirmDelete(drive); }}
                       className="p-2 rounded-lg text-gray-400 hover:text-critical-text hover:bg-critical-bg dark:hover:text-critical-dtext dark:hover:bg-critical-dbg transition-colors"
                       aria-label={`Delete ${drive.title}`}
                       title="Delete this drive"
@@ -151,12 +147,12 @@ export default function MyDrives() {
 
       <Modal
         isOpen={!!confirmDelete}
-        onClose={() => { setConfirmDelete(null); setActionError(''); }}
+        onClose={() => { setConfirmDelete(null); setDeleteError(''); }}
         title="Delete this drive?"
         subtitle={confirmDelete ? confirmDelete.title : ''}
         footer={(
           <>
-            <Button variant="secondary" onClick={() => { setConfirmDelete(null); setActionError(''); }} disabled={deleting}>
+            <Button variant="secondary" onClick={() => { setConfirmDelete(null); setDeleteError(''); }} disabled={deleting}>
               Keep it
             </Button>
             <Button variant="critical" onClick={handleDelete} loading={deleting}>
@@ -169,9 +165,9 @@ export default function MyDrives() {
           This removes the drive completely and cannot be undone. If it already happened, or
           anything has been logged against it, cancel it instead so the record survives.
         </p>
-        {actionError && (
+        {deleteError && (
           <p className="text-sm text-critical-text dark:text-critical-dtext bg-critical-bg dark:bg-critical-dbg rounded-lg px-3 py-2 mt-3">
-            {actionError}
+            {deleteError}
           </p>
         )}
       </Modal>

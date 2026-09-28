@@ -15,6 +15,7 @@ import { Table, Th, Td, fmtDate } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listUsers, createAdmin } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
 import { useDebouncedFilters } from '../../hooks/useDebouncedFilters';
@@ -24,6 +25,7 @@ const ROLES = ['hospital', 'bank', 'ngo', 'donor', 'admin'];
 export default function AdminUsers() {
   const navigate = useNavigate();
   const { user: me } = useAuth();
+  const { popupSuccess, popupError } = useFeedback();
   const [filters, setFilters] = useState({ search: '', role: '', org_id: '', is_active: '', is_verified: '' });
   const applied = useDebouncedFilters(filters);
   const users = usePaginatedAsync(
@@ -36,21 +38,20 @@ export default function AdminUsers() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ email: '', full_name: '' });
   const [creating, setCreating] = useState(false);
-  const [createMsg, setCreateMsg] = useState({ ok: '', err: '' });
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
 
   const handleCreate = async (e) => {
     e.preventDefault();
     setCreating(true);
-    setCreateMsg({ ok: '', err: '' });
     try {
       const res = await createAdmin(form);
-      setCreateMsg({ ok: res.message, err: '' });
       setForm({ email: '', full_name: '' });
+      setCreateOpen(false);
       users.refresh();
+      popupSuccess(res.message);
     } catch (err) {
-      setCreateMsg({ ok: '', err: err.message });
+      popupError(err.message);
     } finally {
       setCreating(false);
     }
@@ -118,8 +119,6 @@ export default function AdminUsers() {
           <div><label className="text-xs text-gray-500">Full name</label><Input className="mt-1" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="Second Admin" /></div>
           <div><label className="text-xs text-gray-500">Email</label><Input className="mt-1" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin2@roktonet.org" /></div>
           <p className="text-xs text-gray-400">Only the primary admin can do this. New admins can do everything except create more admins.</p>
-          {createMsg.ok && <p className="text-sm text-elective-text dark:text-elective-dtext">{createMsg.ok}</p>}
-          {createMsg.err && <p className="text-sm text-critical-text dark:text-critical-dtext">{createMsg.err}</p>}
         </form>
       </Modal>
     </div>

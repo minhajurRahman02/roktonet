@@ -17,6 +17,7 @@ import Pagination from '../../components/molecules/Pagination';
 import { Table, Th, Td, shortId } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listRequests } from '../../api/requests';
 import { cancelRequest } from '../../api/admin';
 import { getDistricts } from '../../api/locations';
@@ -46,23 +47,22 @@ export default function AdminRequests() {
     { storageKey: 'admin.requests' }
   );
   const districts = useAsync(getDistricts, []);
+  const { popupSuccess, popupError } = useFeedback();
   const [tracking, setTracking] = useState(null);
   const [cancelling, setCancelling] = useState(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [done, setDone] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
   const apply = (e) => e.preventDefault();
 
   const confirmCancel = async () => {
-    setBusy(true); setErr('');
+    setBusy(true);
     try {
       const res = await cancelRequest(cancelling.request_id, reason);
-      setDone(`Request cancelled. ${res.released_units} reserved unit(s) released back to inventory.`);
       setCancelling(null); setReason(''); requests.refresh();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+      popupSuccess(`Request cancelled. ${res.released_units} reserved unit(s) released back to inventory.`);
+    } catch (e) { popupError(e.message); } finally { setBusy(false); }
   };
 
   // No client-side filtering any more: the server returns exactly the rows
@@ -72,7 +72,6 @@ export default function AdminRequests() {
   return (
     <div className="p-6">
       <PageHeader title="Requests" subtitle="All patient and restock requests, system-wide." action={<Link to="/admin/reports"><Button variant="secondary">Export →</Button></Link>} />
-      {done && <div className="mb-4 text-sm rounded-lg px-4 py-3 bg-elective-bg dark:bg-elective-dbg text-elective-text dark:text-elective-dtext flex justify-between"><span>{done}</span><button onClick={() => setDone('')} className="text-xs underline">dismiss</button></div>}
 
       <form onSubmit={apply}>
         <FilterBar cols={6}>
@@ -108,7 +107,7 @@ export default function AdminRequests() {
                 <Td>
                   <div className="flex gap-1">
                     <Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs" onClick={() => setTracking(r.request_id)}>Track</Button>
-                    {!r.cancelled_at && <Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs !text-critical-text" onClick={() => { setCancelling(r); setErr(''); }}>Cancel</Button>}
+                    {!r.cancelled_at && <Button variant="ghost" className="!px-2.5 !py-1.5 !text-xs !text-critical-text" onClick={() => setCancelling(r)}>Cancel</Button>}
                   </div>
                 </Td>
               </tr>
@@ -135,7 +134,6 @@ export default function AdminRequests() {
             </div>
             <label className="text-sm font-medium dark:text-textprimary-dark">Reason <span className="text-gray-400 font-normal">(optional, goes in the audit log)</span></label>
             <Input className="mt-1" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Duplicate entry" />
-            {err && <p className="text-sm text-critical-text dark:text-critical-dtext mt-3">{err}</p>}
           </>
         )}
       </Modal>

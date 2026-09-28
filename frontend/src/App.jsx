@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { FeedbackProvider } from './context/FeedbackContext';
 import ProtectedRoute from './routing/ProtectedRoute';
 import RoleRoute from './routing/RoleRoute';
 import ScrollToHash from './routing/ScrollToHash';
@@ -76,6 +77,9 @@ const HOSPITAL_SHELL_ROLES = ['hospital'];
 
 export default function App() {
   return (
+    // Outermost, so every page -- authenticated dashboards and the public
+    // login/register/reset flows alike -- can call useFeedback().
+    <FeedbackProvider>
     <AuthProvider>
       <BrowserRouter>
         {/* Inside the router so it can read the location, outside Routes so
@@ -712,5 +716,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </FeedbackProvider>
   );
 }

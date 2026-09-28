@@ -4,6 +4,7 @@ import LoadingState from '../../components/molecules/LoadingState';
 import ErrorState from '../../components/molecules/ErrorState';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getDonor, updateDonor, inviteDonorLogin } from '../../api/donors';
 import { listDrives } from '../../api/drives';
 import { listInventory } from '../../api/inventory';
@@ -22,7 +23,7 @@ export default function DonorDetail() {
   const [errorMessage, setErrorMessage] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
-  const [inviteMessage, setInviteMessage] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   const load = useCallback(() => {
     setStatus('loading');
@@ -48,19 +49,23 @@ export default function DonorDetail() {
   }, [load]);
 
   async function handleSaveEdit() {
-    const updated = await updateDonor(id, editForm);
-    setDonor(updated);
-    setEditing(false);
+    try {
+      const updated = await updateDonor(id, editForm);
+      setDonor(updated);
+      setEditing(false);
+      toastSuccess('Donor updated.');
+    } catch (err) {
+      popupError(err.message);
+    }
   }
 
   async function handleInviteLogin() {
-    setInviteMessage('');
     try {
       const result = await inviteDonorLogin(id);
-      setInviteMessage(result.message);
+      toastSuccess(result.message);
       load();
     } catch (err) {
-      setInviteMessage(err.message);
+      popupError(err.message);
     }
   }
 
@@ -182,7 +187,6 @@ export default function DonorDetail() {
             <button onClick={handleInviteLogin} className="text-primary dark:text-textprimary-dark font-medium underline ml-1">
               Invite to create login
             </button>
-            {inviteMessage && <p className="mt-1">{inviteMessage}</p>}
           </div>
         )}
       </div>

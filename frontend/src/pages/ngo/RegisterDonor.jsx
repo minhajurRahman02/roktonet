@@ -7,6 +7,7 @@ import Select from '../../components/atoms/Select';
 import DatalistInput from '../../components/atoms/DatalistInput';
 import Button from '../../components/atoms/Button';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { registerDonor } from '../../api/donors';
 import { getDistricts, getThanas } from '../../api/locations';
 
@@ -28,8 +29,8 @@ export default function RegisterDonor() {
   });
   const [districts, setDistricts] = useState([]);
   const [thanas, setThanas] = useState([]);
-  const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toastSuccess, popupError } = useFeedback();
 
   useEffect(() => {
     getDistricts().then(setDistricts).catch(() => setDistricts([]));
@@ -49,10 +50,9 @@ export default function RegisterDonor() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
 
     if (!form.full_name.trim() || !form.phone_number.trim() || !form.blood_type) {
-      setError('Full name, phone number, and blood type are required.');
+      popupError('Full name, phone number, and blood type are required.');
       return;
     }
     // Required, not optional, for assisted registration specifically --
@@ -62,15 +62,15 @@ export default function RegisterDonor() {
     // district (not thana) since a donor filling in their own form has
     // less in-person context than an NGO volunteer collecting it directly.
     if (!form.current_district.trim() || !form.current_thana.trim()) {
-      setError('District and thana are required -- these donors need a real location to be matched against requests.');
+      popupError('District and thana are required. These donors need a real location to be matched against requests.');
       return;
     }
     if (!form.sex) {
-      setError('Sex is required -- whole blood eligibility genuinely differs by sex.');
+      popupError('Sex is required. Whole blood eligibility genuinely differs by sex.');
       return;
     }
     if (form.last_donation_date && !form.last_donation_component) {
-      setError('If you know their last donation date, please also select what they donated -- the cooldown depends on both.');
+      popupError('If you know their last donation date, please also select what they donated. The cooldown depends on both.');
       return;
     }
 
@@ -88,9 +88,10 @@ export default function RegisterDonor() {
         last_donation_date: form.last_donation_date || undefined,
         last_donation_component: form.last_donation_date ? form.last_donation_component : undefined,
       });
+      toastSuccess('Donor registered.');
       navigate(`/ngo/donors/${donor.donor_id}`);
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -184,10 +185,6 @@ export default function RegisterDonor() {
             <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark mt-1">Required together with the date -- the cooldown depends on both.</p>
           </FormField>
         </div>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Registering…' : 'Register donor'}

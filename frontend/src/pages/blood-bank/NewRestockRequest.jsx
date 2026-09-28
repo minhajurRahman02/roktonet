@@ -6,6 +6,7 @@ import Input from '../../components/atoms/Input';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { createRequest } from '../../api/requests';
 
 export default function NewRestockRequest() {
@@ -16,8 +17,8 @@ export default function NewRestockRequest() {
     quantity: 5,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const { popupSuccess, popupError } = useFeedback();
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -25,7 +26,6 @@ export default function NewRestockRequest() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
     setIsSubmitting(true);
     try {
       const created = await createRequest({
@@ -36,8 +36,9 @@ export default function NewRestockRequest() {
         urgency_tier: 'restock',
       });
       setResult(created);
+      popupSuccess('Restock request submitted.');
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -81,10 +82,6 @@ export default function NewRestockRequest() {
         <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark">
           Restock requests sit at the lowest priority tier. If a critical or urgent patient request needs the same unit, that request wins every time.
         </p>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Submitting…' : 'Submit restock request'}

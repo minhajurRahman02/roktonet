@@ -7,6 +7,7 @@ import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
 import FulfillmentBadge from '../../components/atoms/FulfillmentBadge';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { createRequest } from '../../api/requests';
 import RoktimAdvisoryStrip from '../../roktim/RoktimAdvisoryStrip';
 import { warmRoktim } from '../../api/roktim';
@@ -37,8 +38,8 @@ export default function NewRequest() {
     patient_note: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const { popupSuccess, popupError } = useFeedback();
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -46,21 +47,20 @@ export default function NewRequest() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
 
     if (form.urgency_tier === 'elective' && !form.needed_by_date) {
-      setError('needed_by_date is required for elective requests');
+      popupError('A needed-by date is required for elective requests.');
       return;
     }
     // Checked here as well as on the server so a missing name costs a
     // keystroke rather than a round trip -- the server check is the one that
     // actually enforces it.
     if (!form.patient_name.trim()) {
-      setError("Patient name is required so these units can be traced to the right person.");
+      popupError("Patient name is required so these units can be traced to the right person.");
       return;
     }
     if (!form.patient_phone.trim()) {
-      setError('Patient phone is required.');
+      popupError('Patient phone is required.');
       return;
     }
 
@@ -78,8 +78,9 @@ export default function NewRequest() {
         patient_note: form.patient_note.trim() || undefined,
       });
       setResult(created);
+      popupSuccess('Request submitted.');
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -92,6 +93,12 @@ export default function NewRequest() {
     <div className="p-6">
       <PageHeader title="New Request" subtitle="Submit a blood request for a patient." />
 
+      {/* Two columns from lg up, form fixed-width on the left with Roktim
+          in the space beside it. Below lg, grid-cols-1 stacks the second
+          child under the first, which is where Roktim rendered before this
+          change -- so a narrow viewport keeps its old layout untouched and
+          only wide screens get the side-by-side arrangement. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,32rem)_1fr] gap-6 items-start">
       <form onSubmit={handleSubmit} noValidate className="bg-white dark:bg-surface-dark border border-gray-200 dark:border-white/10 rounded-xl p-6 max-w-lg space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Blood type" htmlFor="blood_type">
@@ -186,24 +193,25 @@ export default function NewRequest() {
           </FormField>
         </div>
 
-        {/* Roktim (Phase 6E). Renders null unless this is an elective request
-            with a date, and null on any failure, so the form is byte-for-byte
-            what it was before whenever Roktim has nothing to say. */}
+        <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
+          {isSubmitting ? 'Submitting…' : 'Submit request'}
+        </Button>
+      </form>
+
+      {/* Roktim (Phase 6E). Renders null unless this is an elective request
+          with a date, and null on any failure -- this column is then
+          visually empty, not a gap with a border around it, since the div
+          itself has no background or padding of its own. Sticky on desktop
+          so it stays in view while a long form scrolls past it. */}
+      <div className="lg:sticky lg:top-24">
         <RoktimAdvisoryStrip
           urgencyTier={form.urgency_tier}
           neededByDate={form.needed_by_date}
           quantity={form.quantity}
           component={form.component}
         />
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
-        )}
-
-        <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
-          {isSubmitting ? 'Submitting…' : 'Submit request'}
-        </Button>
-      </form>
+      </div>
+      </div>
 
       {result && (
         <div className="mt-4 max-w-lg bg-elective-bg dark:bg-elective-dbg text-elective-text dark:text-elective-dtext rounded-lg p-3 text-sm flex items-center justify-between gap-3">

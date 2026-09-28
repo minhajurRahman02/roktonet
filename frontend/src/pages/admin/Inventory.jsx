@@ -15,6 +15,7 @@ import Pagination from '../../components/molecules/Pagination';
 import { Table, Th, Td, shortId, fmtDate } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listInventory } from '../../api/inventory';
 import { updateInventoryUnit } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
@@ -43,20 +44,20 @@ export default function AdminInventory() {
   );
   const orgs = useAsync(() => listOrganizations(), []);
   const districts = useAsync(getDistricts, []);
+  const { popupSuccess, popupError } = useFeedback();
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
   const apply = (e) => e.preventDefault();
 
-  const openEdit = (u) => { setEditing(u); setForm({ blood_type: u.blood_type, component: u.component, expiry_date: fmtDate(u.expiry_date), status: u.status }); setErr(''); };
+  const openEdit = (u) => { setEditing(u); setForm({ blood_type: u.blood_type, component: u.component, expiry_date: fmtDate(u.expiry_date), status: u.status }); };
   const locked = editing && editing.status !== 'available';
   const allowedStatuses = editing ? STATUS_ORDER.filter((s) => !TERMINAL.includes(editing.status) || STATUS_ORDER.indexOf(s) >= STATUS_ORDER.indexOf(editing.status)) : [];
 
   const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('');
+    e.preventDefault(); setBusy(true);
     const patch = {};
     if (form.expiry_date !== fmtDate(editing.expiry_date)) patch.expiry_date = form.expiry_date;
     if (form.status !== editing.status) patch.status = form.status;
@@ -67,7 +68,8 @@ export default function AdminInventory() {
     try {
       if (Object.keys(patch).length) await updateInventoryUnit(editing.unit_id, patch);
       setEditing(null); units.refresh();
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+      popupSuccess('Unit updated.');
+    } catch (x) { popupError(x.message); } finally { setBusy(false); }
   };
 
   const sourceOrgs = (orgs.data || []).filter((o) => o.org_type !== 'hospital');
@@ -133,7 +135,6 @@ export default function AdminInventory() {
               <div><label className="text-xs text-gray-500">Status</label><Select className="mt-1" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>{allowedStatuses.map((s) => <option key={s}>{s}</option>)}</Select></div>
             </div>
             {TERMINAL.includes(editing.status) && <p className="text-xs text-gray-400 mt-2">A {editing.status} unit can&apos;t be moved backwards — it has physically left the building.</p>}
-            {err && <p className="text-sm text-critical-text dark:text-critical-dtext mt-3">{err}</p>}
           </form>
         )}
       </Modal>

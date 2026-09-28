@@ -14,6 +14,7 @@ import Modal from '../../components/admin/Modal';
 import { Table, Th, Td, shortId, fmtDate } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getUser, updateUser, requestViewToken } from '../../api/admin';
 import { listOrganizations } from '../../api/organizations';
 import { ROLE_HOME } from '../../constants/roleHome';
@@ -161,6 +162,7 @@ export default function AdminUserDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user: me, startViewAs } = useAuth();
+  const { popupSuccess, popupError } = useFeedback();
   const detail = useAsync(() => getUser(id), [id]);
   const orgs = useAsync(() => listOrganizations(), []);
   const [tab, setTab] = useState(null);
@@ -168,7 +170,6 @@ export default function AdminUserDetail() {
   const [deactOpen, setDeactOpen] = useState(false);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState('');
   const [viewAsBusy, setViewAsBusy] = useState(false);
 
   if (detail.status === 'loading') return <div className="p-6"><LoadingState rows={6} /></div>;
@@ -180,11 +181,11 @@ export default function AdminUserDetail() {
   const isSelf = me?.user_id === u.user_id;
   const isOtherAdmin = u.role === 'admin' && !isSelf;
 
-  const openEdit = () => { setForm({ full_name: u.full_name || '', email: u.email, org_id: u.org_id || '' }); setActionError(''); setEditOpen(true); };
+  const openEdit = () => { setForm({ full_name: u.full_name || '', email: u.email, org_id: u.org_id || '' }); setEditOpen(true); };
 
   const saveEdit = async (e) => {
     e.preventDefault();
-    setBusy(true); setActionError('');
+    setBusy(true);
     const patch = {};
     if (form.full_name !== (u.full_name || '')) patch.full_name = form.full_name;
     if (form.email !== u.email) patch.email = form.email;
@@ -192,17 +193,20 @@ export default function AdminUserDetail() {
     try {
       if (Object.keys(patch).length) await updateUser(u.user_id, patch);
       setEditOpen(false); detail.refresh();
-    } catch (err) { setActionError(err.message); } finally { setBusy(false); }
+      popupSuccess('User updated.');
+    } catch (err) { popupError(err.message); } finally { setBusy(false); }
   };
 
   const setActive = async (is_active) => {
-    setBusy(true); setActionError('');
-    try { await updateUser(u.user_id, { is_active }); setDeactOpen(false); detail.refresh(); }
-    catch (err) { setActionError(err.message); } finally { setBusy(false); }
+    setBusy(true);
+    try {
+      await updateUser(u.user_id, { is_active }); setDeactOpen(false); detail.refresh();
+      popupSuccess(is_active ? 'Account reactivated.' : 'Account deactivated.');
+    } catch (err) { popupError(err.message); } finally { setBusy(false); }
   };
 
   const viewAs = async () => {
-    setViewAsBusy(true); setActionError('');
+    setViewAsBusy(true);
     try {
       const res = await requestViewToken(u.user_id);
       // 7.7a: the navigation is passed INTO startViewAs rather than run
@@ -217,7 +221,7 @@ export default function AdminUserDetail() {
         res.expires_in,
         () => navigate(ROLE_HOME[res.viewing.role] || '/')
       );
-    } catch (err) { setActionError(err.message); setViewAsBusy(false); }
+    } catch (err) { popupError(err.message); setViewAsBusy(false); }
   };
 
   return (
@@ -249,7 +253,6 @@ export default function AdminUserDetail() {
         )}
       </div>
       {isOtherAdmin && <p className="text-xs text-gray-400 mb-4">Admin accounts can only be edited by their owner.</p>}
-      {actionError && !editOpen && !deactOpen && <div className="mb-4"><ErrorState message={actionError} /></div>}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {cards.filter(([, l]) => l).map(([v, l]) => <StatCard key={l} value={v} label={l} />)}
@@ -278,7 +281,6 @@ export default function AdminUserDetail() {
             )}
             <div className="opacity-50"><label className="text-xs text-gray-500">Role</label><Input className="mt-1" value={u.role} disabled /></div>
             <p className="text-xs text-gray-400">Role can&apos;t be changed — a bank account owns inventory; a donor account has a linked donor record. Deactivate and create a new account instead.</p>
-            {actionError && <p className="text-sm text-critical-text dark:text-critical-dtext">{actionError}</p>}
           </form>
         )}
       </Modal>
@@ -286,7 +288,6 @@ export default function AdminUserDetail() {
       <Modal isOpen={deactOpen} onClose={() => setDeactOpen(false)} title={`Deactivate ${u.full_name || u.email}?`}
         footer={<><Button variant="ghost" onClick={() => setDeactOpen(false)}>Keep active</Button><Button variant="critical" onClick={() => setActive(false)} loading={busy}>Deactivate</Button></>}>
         <p className="text-sm text-gray-500 dark:text-textsecondary-dark">They will be blocked on their very next request and unable to log in. Their records, allocations and history stay intact. You can reactivate at any time.</p>
-        {actionError && <p className="text-sm text-critical-text dark:text-critical-dtext mt-3">{actionError}</p>}
       </Modal>
     </div>
   );

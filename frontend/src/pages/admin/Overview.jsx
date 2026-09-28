@@ -12,6 +12,7 @@ import StatCard from '../../components/admin/StatCard';
 import DivisionMap from '../../components/admin/DivisionMap';
 import { baseOptions, radialOptions, STATUS_COLOR, URGENCY_COLOR } from '../../components/admin/chartTheme';
 import { useAsync } from '../../hooks/useAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getOverview, getActivityFeed, getMap, runBatch } from '../../api/admin';
 import { relativeTime } from '../../utils/relativeTime';
 
@@ -32,6 +33,12 @@ export default function AdminOverview() {
   const feed = useAsync(() => getActivityFeed(12), [], { pollMs: POLL_MS });
   const [mapDays, setMapDays] = useState('7');
   const map = useAsync(() => getMap(windowRange(mapDays)), [mapDays]);
+  const { popupSuccess, popupError } = useFeedback();
+  // The detailed banner below (duration, processed count, shortfalls
+  // escalated) stays exactly as it was -- an admin running a batch wants
+  // that on screen to read, not flashed in a popup and gone. The popup
+  // only adds the same brief "it worked / it didn't" every other action
+  // in the app now gives, on top of the detail rather than instead of it.
   const [batch, setBatch] = useState({ running: false, result: null, error: '' });
 
   const handleRunBatch = async () => {
@@ -42,8 +49,10 @@ export default function AdminOverview() {
       overview.refresh();
       feed.refresh();
       map.refresh();
+      popupSuccess('Batch complete.');
     } catch (err) {
       setBatch({ running: false, result: null, error: err.message });
+      popupError(`Batch failed: ${err.message}`);
     }
   };
 

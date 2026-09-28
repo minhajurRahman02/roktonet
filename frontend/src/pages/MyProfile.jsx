@@ -5,6 +5,7 @@ import Input from '../components/atoms/Input';
 import DatalistInput from '../components/atoms/DatalistInput';
 import Button from '../components/atoms/Button';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { updateMe, changePassword, uploadAvatar } from '../api/auth';
 import { getDonor, updateDonor } from '../api/donors';
 import { getOrganization, updateOrganization } from '../api/organizations';
@@ -19,16 +20,13 @@ function initials(name) {
 
 export default function MyProfile() {
   const { user, refreshUser } = useAuth();
+  const { popupSuccess, popupError } = useFeedback();
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [donor, setDonor] = useState(null);
   const [org, setOrg] = useState(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [saveError, setSaveError] = useState('');
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '' });
-  const [passwordMessage, setPasswordMessage] = useState('');
-  const [passwordError, setPasswordError] = useState('');
   const [districts, setDistricts] = useState([]);
   const [thanas, setThanas] = useState([]);
 
@@ -70,8 +68,9 @@ export default function MyProfile() {
     try {
       await uploadAvatar(file);
       await refreshUser();
+      popupSuccess('Photo updated.');
     } catch (err) {
-      setSaveError(err.message);
+      popupError(err.message);
     } finally {
       setAvatarUploading(false);
     }
@@ -81,7 +80,7 @@ export default function MyProfile() {
     // district is required for organizations -- checked before anything
     // is sent, same as any other required field in this project's forms.
     if (isOrgRole && !org?.district?.trim()) {
-      setSaveError('District is required.');
+      popupError('District is required.');
       return;
     }
 
@@ -92,13 +91,11 @@ export default function MyProfile() {
     // it. Blocking here means an org editing its phone number cannot
     // silently drop itself back to district-level precision.
     if (isOrgRole && !org?.thana?.trim()) {
-      setSaveError('Thana is required.');
+      popupError('Thana is required.');
       return;
     }
 
     setSaving(true);
-    setSaveMessage('');
-    setSaveError('');
     try {
       const tasks = [updateMe({ full_name: fullName })];
       if (isDonor && donor) {
@@ -125,23 +122,21 @@ export default function MyProfile() {
       }
       await Promise.all(tasks);
       await refreshUser();
-      setSaveMessage('Saved.');
+      popupSuccess('Saved.');
     } catch (err) {
-      setSaveError(err.message);
+      popupError(err.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function handleChangePassword() {
-    setPasswordMessage('');
-    setPasswordError('');
     try {
       await changePassword(passwordForm.current, passwordForm.next);
-      setPasswordMessage('Password changed.');
+      popupSuccess('Password changed.');
       setPasswordForm({ current: '', next: '' });
     } catch (err) {
-      setPasswordError(err.message);
+      popupError(err.message);
     }
   }
 
@@ -292,16 +287,12 @@ export default function MyProfile() {
             value={passwordForm.next}
             onChange={(e) => setPasswordForm((f) => ({ ...f, next: e.target.value }))}
           />
-          {passwordError && <p className="text-sm text-red-600 dark:text-red-400">{passwordError}</p>}
-          {passwordMessage && <p className="text-sm text-elective-text dark:text-elective-dtext">{passwordMessage}</p>}
           <Button variant="secondary" onClick={handleChangePassword} disabled={!passwordForm.current || !passwordForm.next}>
             Change password
           </Button>
         </div>
       </div>
 
-      {saveError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{saveError}</p>}
-      {saveMessage && <p className="text-sm text-elective-text dark:text-elective-dtext mb-2">{saveMessage}</p>}
       <Button variant="primary" loading={saving} onClick={handleSave}>
         Save changes
       </Button>

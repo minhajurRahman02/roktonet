@@ -14,6 +14,7 @@ import Pagination from '../../components/molecules/Pagination';
 import { Table, Th, Td } from '../../components/admin/Table';
 import { useAsync } from '../../hooks/useAsync';
 import { usePaginatedAsync } from '../../hooks/usePaginatedAsync';
+import { useFeedback } from '../../context/FeedbackContext';
 import { listOrganizations, updateOrganization } from '../../api/organizations';
 import { createOrganization } from '../../api/admin';
 import DatalistInput from '../../components/atoms/DatalistInput';
@@ -64,17 +65,22 @@ export default function AdminOrganizations() {
       .catch(() => { if (!cancelled) setThanas([]); });
     return () => { cancelled = true; };
   }, [form.district]);
+  const { popupSuccess, popupError } = useFeedback();
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
+  // Kept as its own banner rather than folded into the popup: an invite
+  // code is a real credential the admin may need to copy, and a popup
+  // that's gone the moment OK is clicked is the wrong place for that. The
+  // popup below still fires on creation, same as everywhere else -- it
+  // just isn't where the code itself lives.
   const [notice, setNotice] = useState('');
 
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
   const apply = (e) => e.preventDefault();
-  const openCreate = () => { setForm(EMPTY); setErr(''); setModal('create'); };
-  const openEdit = (o) => { setForm({ name: o.name, org_type: o.org_type, district: o.district || '', thana: o.thana || '', contact_phone: o.contact_phone || '', contact_email: o.contact_email || '' }); setErr(''); setModal(o); };
+  const openCreate = () => { setForm(EMPTY); setModal('create'); };
+  const openEdit = (o) => { setForm({ name: o.name, org_type: o.org_type, district: o.district || '', thana: o.thana || '', contact_phone: o.contact_phone || '', contact_email: o.contact_email || '' }); setModal(o); };
 
   const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('');
+    e.preventDefault(); setBusy(true);
     try {
       if (modal === 'create') {
         // Thana is mandatory now. It is not cosmetic: donorFallback.js ranks
@@ -82,17 +88,20 @@ export default function AdminOrganizations() {
         // the uniqueness rule (same name and district is allowed only when
         // the thana differs). An org without one silently never wins a
         // proximity tie-break.
-        if (!form.thana.trim()) { setErr('Thana is required.'); return; }
+        if (!form.thana.trim()) { popupError('Thana is required.'); return; }
         const created = await createOrganization(form);
         setNotice(`${created.name} created. Invite code: ${created.invite_code}`);
+        setModal(null); orgs.refresh();
+        popupSuccess(`${created.name} created.`);
       } else {
         const patch = {};
         ['name', 'district', 'thana', 'contact_phone', 'contact_email'].forEach((k) => { if (form[k] !== (modal[k] || '')) patch[k] = form[k]; });
         if (patch.thana !== undefined && patch.district === undefined) patch.district = form.district; // backend needs district whenever location changes
         if (Object.keys(patch).length) await updateOrganization(modal.org_id, patch);
+        setModal(null); orgs.refresh();
+        popupSuccess('Organization updated.');
       }
-      setModal(null); orgs.refresh();
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    } catch (x) { popupError(x.message); } finally { setBusy(false); }
   };
 
   return (
@@ -158,7 +167,6 @@ export default function AdminOrganizations() {
           <div className="col-span-2"><label className="text-xs text-gray-500">Contact email</label><Input className="mt-1" type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
           {modal !== 'create' && modal && <div className="col-span-2"><label className="text-xs text-gray-500">Invite code</label><div className="mt-1"><InviteCode code={modal.invite_code} /></div></div>}
           {modal === 'create' && <p className="col-span-2 text-xs text-gray-400">An invite code is generated automatically; staff use it to register.</p>}
-          {err && <p className="col-span-2 text-sm text-critical-text dark:text-critical-dtext">{err}</p>}
         </form>
       </Modal>
     </div>

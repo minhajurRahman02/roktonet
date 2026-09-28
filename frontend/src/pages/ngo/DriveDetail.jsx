@@ -7,6 +7,7 @@ import ErrorState from '../../components/molecules/ErrorState';
 import Button from '../../components/atoms/Button';
 import Input from '../../components/atoms/Input';
 import DownloadControl from '../../components/molecules/DownloadControl';
+import { useFeedback } from '../../context/FeedbackContext';
 import { getDrive, startDrive, finishDrive, downloadDriveReport } from '../../api/drives';
 import { listInventory } from '../../api/inventory';
 import { listDonors } from '../../api/donors';
@@ -32,6 +33,7 @@ export default function DriveDetail() {
   const [donorResults, setDonorResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const { toastSuccess, popupError } = useFeedback();
 
   const load = useCallback(() => {
     setStatus('loading');
@@ -56,8 +58,9 @@ export default function DriveDetail() {
     try {
       await startDrive(id);
       load();
+      toastSuccess('Drive started.');
     } catch (err) {
-      setErrorMessage(err.message);
+      popupError(err.message);
     } finally {
       setStarting(false);
     }
@@ -68,8 +71,9 @@ export default function DriveDetail() {
     try {
       await finishDrive(id);
       load();
+      toastSuccess('Drive finished.');
     } catch (err) {
-      setErrorMessage(err.message);
+      popupError(err.message);
     } finally {
       setFinishing(false);
     }

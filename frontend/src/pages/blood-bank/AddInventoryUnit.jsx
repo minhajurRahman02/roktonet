@@ -6,6 +6,7 @@ import Input from '../../components/atoms/Input';
 import Select from '../../components/atoms/Select';
 import Button from '../../components/atoms/Button';
 import { useAuth } from '../../context/AuthContext';
+import { useFeedback } from '../../context/FeedbackContext';
 import { addInventoryUnit } from '../../api/inventory';
 
 // Shared by blood bank and NGO -- see the note in MyInventory.jsx. Only the
@@ -38,7 +39,7 @@ export default function AddInventoryUnit() {
   });
   const [expiryTouchedManually, setExpiryTouchedManually] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
+  const { toastSuccess, popupError } = useFeedback();
 
   function updateField(field, value) {
     setForm((f) => {
@@ -57,10 +58,9 @@ export default function AddInventoryUnit() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(null);
 
     if (!form.blood_type || !form.component || !form.collection_date || !form.expiry_date) {
-      setError('All fields are required.');
+      popupError('All fields are required.');
       return;
     }
 
@@ -73,9 +73,10 @@ export default function AddInventoryUnit() {
         collection_date: form.collection_date,
         expiry_date: form.expiry_date,
       });
+      toastSuccess('Unit added.');
       navigate(`${base}/inventory`);
     } catch (err) {
-      setError(err.message);
+      popupError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -131,10 +132,6 @@ export default function AddInventoryUnit() {
         <p className="text-[11px] text-gray-400 dark:text-textsecondary-dark">
           We'll suggest a date once you pick a component (platelets last about 5 days, whole blood about 35, plasma much longer if frozen), but you can always change it.
         </p>
-
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-critical-dbg rounded-lg px-3 py-2">{error}</p>
-        )}
 
         <Button type="submit" variant="primary" loading={isSubmitting} className="w-full">
           {isSubmitting ? 'Adding…' : 'Add unit'}
