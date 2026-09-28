@@ -3,11 +3,14 @@ import { Link } from 'react-router-dom';
 import { Sun, Moon } from 'lucide-react';
 import { useDarkMode } from '../../hooks/useDarkMode';
 
+// Anchors scroll within the landing page; `to` navigates to a real route.
+// "How it works" and "About us" were both anchors to nothing before; they
+// are pages now.
 const NAV_LINKS = [
-  { href: '#how-it-works', label: 'How it works' },
+  { to: '/how-it-works', label: 'How it works' },
   { href: '#impact', label: 'Impact' },
   { href: '#become-donor', label: 'Become a donor' },
-  { href: '#', label: 'About us' }, // placeholder -- no dedicated About page yet
+  { to: '/about', label: 'About us' },
 ];
 
 export default function LandingNav() {
@@ -38,19 +41,43 @@ export default function LandingNav() {
       style={{ transform: hidden ? 'translateY(-100%)' : 'translateY(0)' }}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <a href="#top" className="flex items-center gap-2">
-          {/* <svg width="22" height="22" viewBox="0 0 24 24" fill="#A9382F">
-            <path d="M12 2C12 2 5 11 5 15.5C5 19.09 8.13 22 12 22C15.87 22 19 19.09 19 15.5C19 11 12 2 12 2Z" />
-          </svg> */}
+        <a href="#top" className="flex items-center gap-2.5">
+          {/* LOGO SLOT.
+              Swap the <svg> below for <img src="/logo.svg" alt="" className="w-full h-full object-contain" />
+              once the real mark exists. The 32px rounded square and the
+              dashed border are the placeholder's own styling and should go
+              with it; the sizing on the wrapper is what the layout depends
+              on. */}
+          <span className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-white/10 border border-dashed border-primary/40 dark:border-white/25 grid place-items-center shrink-0 overflow-hidden">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#A9382F" aria-hidden="true">
+              <path d="M12 2C12 2 5 11.5 5 16a7 7 0 0 0 14 0c0-4.5-7-14-7-14z" />
+            </svg>
+          </span>
           <span className="font-display font-bold text-xl text-primary dark:text-textprimary-dark">RoktoNet</span>
         </a>
 
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600 dark:text-textsecondary-dark">
-          {NAV_LINKS.map((link) => (
+        <div className="hidden md:flex items-center gap-7 text-sm font-medium text-gray-600 dark:text-textsecondary-dark">
+          {NAV_LINKS.map((link) => (link.to ? (
+            <Link key={link.label} to={link.to} className="hover:text-primary dark:hover:text-white transition-colors duration-300">
+              {link.label}
+            </Link>
+          ) : (
             <a key={link.label} href={link.href} className="hover:text-primary dark:hover:text-white transition-colors duration-300">
               {link.label}
             </a>
-          ))}
+          )))}
+
+          {/* Roktim carries its own colour here, which nothing else in the
+              nav does. That is the point: it is a different world inside
+              RoktoNet, and the link should say so before you click it. The
+              sparks are positioned rather than laid out so they can sit
+              outside the text box without affecting the nav's spacing. */}
+          <a href="#roktim" className="rkl-nav-link relative font-semibold">
+            <span className="rkl-grad-text">Roktim</span>
+            <span className="rk-sparkle" style={{ width: 3, height: 3, top: -3, left: 6, animationDelay: '0s' }} />
+            <span className="rk-sparkle" style={{ width: 2, height: 2, top: 2, right: -4, animationDelay: '.9s' }} />
+            <span className="rk-sparkle" style={{ width: 2.5, height: 2.5, bottom: -2, left: 22, animationDelay: '1.7s' }} />
+          </a>
         </div>
 
         <div className="flex items-center gap-3">

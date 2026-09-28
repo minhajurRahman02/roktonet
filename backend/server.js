@@ -18,6 +18,11 @@ app.use(
 app.use(express.json()); // lets Express read JSON request bodies
 app.use(cookieParser()); // lets Express read the httpOnly auth cookie
 
+// Public, unauthenticated. Aggregates only, and cached, so the landing
+// page can say "read from the database just now" and have that be true.
+// The route file explains what is deliberately left out of the response.
+app.use('/api/public', require('./routes/publicStats'));
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/organizations', require('./routes/organizations'));
 app.use('/api/inventory', require('./routes/inventory'));

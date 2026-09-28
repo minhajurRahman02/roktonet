@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowUp, Menu, X } from 'lucide-react';
-import { RoktimMark, RoktimDefs, RoktimMesh, BetaBadge } from '../RoktimBrand';
+import { RoktimMark, RoktimDefs, RoktimMesh, RoktimSparks, BetaBadge } from '../RoktimBrand';
 
 // The frame every Roktim page renders inside.
 //
@@ -86,6 +86,7 @@ export default function RoktimShell({ sections, activeId, onNavigate, children }
     <div className="min-h-screen bg-roktim-void text-roktim-ink font-body relative">
       <RoktimDefs id="rk-page" />
       <RoktimMesh />
+      <RoktimSparks />
 
       {/* --- Back to RoktoNet. Fixed, always visible, gradient ring. ------- */}
       <Link

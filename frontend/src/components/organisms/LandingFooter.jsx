@@ -1,45 +1,67 @@
+import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 
+// Only GitHub, because only GitHub is real. Facebook, LinkedIn, Instagram
+// and X were all '#'. An icon row that goes nowhere reads as an abandoned
+// product; add each one back when there is an account behind it.
 const SOCIALS = [
   {
     label: 'GitHub',
-    href: '#',
+    href: 'https://github.com/minhajurRahman02/roktonet',
     path: 'M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.64 1.58.24 2.75.12 3.04.74.81 1.19 1.83 1.19 3.09 0 4.42-2.7 5.4-5.26 5.68.42.36.78 1.08.78 2.17 0 1.57-.01 2.83-.01 3.22 0 .3.2.66.79.55A10.5 10.5 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5z',
-  },
-  {
-    label: 'Facebook',
-    href: '#',
-    path: 'M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.78-3.89 1.1 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12z',
-  },
-  {
-    label: 'LinkedIn',
-    href: '#',
-    path: 'M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.03-1.85-3.03-1.85 0-2.14 1.44-2.14 2.94v5.66H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.11 20.45H3.56V9h3.55v11.45z',
-  },
-  {
-    label: 'Instagram',
-    href: '#',
-    path: 'M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07zM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.8.31-1.47.72-2.14 1.39C1.32 2.7.91 3.37.6 4.16c-.3.76-.5 1.64-.56 2.91C-.01 8.34 0 8.75 0 12s-.01 3.66.04 4.93c.06 1.27.26 2.15.56 2.91.31.8.72 1.47 1.39 2.14.67.67 1.34 1.08 2.14 1.39.76.3 1.64.5 2.91.56 1.27.06 1.68.07 4.93.07s3.66-.01 4.93-.07c1.27-.06 2.15-.26 2.91-.56.8-.31 1.47-.72 2.14-1.39.67-.67 1.08-1.34 1.39-2.14.3-.76.5-1.64.56-2.91.06-1.27.07-1.68.07-4.93s-.01-3.66-.07-4.93c-.06-1.27-.26-2.15-.56-2.91-.31-.8-.72-1.47-1.39-2.14C21.3 1.32 20.63.91 19.84.6c-.76-.3-1.64-.5-2.91-.56C15.66-.01 15.25 0 12 0zm0 5.84A6.16 6.16 0 1 0 12 18.16 6.16 6.16 0 0 0 12 5.84zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.4-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0z',
   },
 ];
 
+// Every destination here is real. The previous version pointed nine links
+// at '#', which on a page a supervisor will click through is worse than
+// not having the links at all.
+//
+// Terms of service was deleted rather than written: it would have been
+// boilerplate describing obligations that do not exist for a course
+// project. Privacy policy was kept and written properly, because RoktoNet
+// does hold patient names and a dead link next to that fact is the thread
+// an examiner pulls first.
+const REPO_URL = 'https://github.com/minhajurRahman02/roktonet';
+
 const PRODUCT_LINKS = [
-  { label: 'How it works', href: '#how-it-works' },
+  { label: 'How it works', to: '/how-it-works' },
   { label: 'Impact', href: '#impact' },
+  { label: 'Roktim', href: '#roktim' },
   { label: 'Become a donor', href: '#become-donor' },
 ];
 
-const COMPANY_LINKS = [
-  { label: 'About us', href: '#' },
-  { label: 'GitHub repository', href: '#' },
-  { label: 'Contact', href: '#' },
+const PROJECT_LINKS = [
+  { label: 'About us', to: '/about' },
+  { label: 'Contact', to: '/about#contact' },
+  { label: 'GitHub repository', external: REPO_URL },
 ];
 
 const RESOURCE_LINKS = [
-  { label: 'Documentation', href: '#' },
-  { label: 'Privacy policy', href: '#' },
-  { label: 'Terms of service', href: '#' },
+  { label: 'Documentation', external: `${REPO_URL}#readme` },
+  { label: 'Privacy policy', to: '/privacy' },
 ];
+
+
+/**
+ * One link, whichever of the three kinds it is.
+ *
+ * `to` routes inside the app, `external` leaves it, and a bare `href` is an
+ * anchor on the landing page itself. Keeping the three apart matters: an
+ * <a href="/about"> would full-page reload and throw away the SPA, and an
+ * external link without rel="noopener" hands the new tab a reference back
+ * to this window.
+ */
+function FooterLink({ link }) {
+  const cls = 'hover:text-white transition-colors duration-300';
+  if (link.external) {
+    return <a href={link.external} target="_blank" rel="noopener noreferrer" className={cls}>{link.label}</a>;
+  }
+  if (link.to) {
+    return <Link to={link.to} className={cls}>{link.label}</Link>;
+  }
+  return <a href={link.href} className={cls}>{link.label}</a>;
+}
+FooterLink.propTypes = { link: PropTypes.object.isRequired };
 
 export default function LandingFooter() {
   return (
@@ -59,7 +81,7 @@ export default function LandingFooter() {
             {SOCIALS.map((s) => (
               <a
                 key={s.label}
-                href={s.href}
+                href={s.href} target="_blank" rel="noopener noreferrer"
                 aria-label={s.label}
                 className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors duration-300"
               >
@@ -68,15 +90,6 @@ export default function LandingFooter() {
                 </svg>
               </a>
             ))}
-            <a
-              href="#"
-              aria-label="X"
-              className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors duration-300"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M3 3l18 18M21 3L3 21" />
-              </svg>
-            </a>
           </div>
         </div>
 
@@ -85,9 +98,7 @@ export default function LandingFooter() {
           <ul className="space-y-2.5 text-sm text-white/70">
             {PRODUCT_LINKS.map((l) => (
               <li key={l.label}>
-                <a href={l.href} className="hover:text-white transition-colors duration-300">
-                  {l.label}
-                </a>
+                <FooterLink link={l} />
               </li>
             ))}
             <li>
@@ -104,13 +115,11 @@ export default function LandingFooter() {
         </div>
 
         <div>
-          <p className="mono text-xs text-white/40 mb-4">COMPANY</p>
+          <p className="mono text-xs text-white/40 mb-4">PROJECT</p>
           <ul className="space-y-2.5 text-sm text-white/70">
-            {COMPANY_LINKS.map((l) => (
+            {PROJECT_LINKS.map((l) => (
               <li key={l.label}>
-                <a href={l.href} className="hover:text-white transition-colors duration-300">
-                  {l.label}
-                </a>
+                <FooterLink link={l} />
               </li>
             ))}
           </ul>
@@ -121,9 +130,7 @@ export default function LandingFooter() {
           <ul className="space-y-2.5 text-sm text-white/70">
             {RESOURCE_LINKS.map((l) => (
               <li key={l.label}>
-                <a href={l.href} className="hover:text-white transition-colors duration-300">
-                  {l.label}
-                </a>
+                <FooterLink link={l} />
               </li>
             ))}
           </ul>

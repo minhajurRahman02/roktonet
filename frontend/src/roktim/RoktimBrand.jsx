@@ -162,3 +162,40 @@ export function RoktimMesh() {
     </div>
   );
 }
+
+/**
+ * The sparkle field.
+ *
+ * Shared with the landing page's Roktim section, which is the whole point:
+ * somebody who arrives from the public page and then opens the dashboard
+ * should feel they walked into the same room. It uses .rk-sparkle, the one
+ * class those two surfaces have in common.
+ *
+ * Positions are a fixed table rather than Math.random(). Random sparkles
+ * look identical to a viewer and make the component impossible to
+ * screenshot-diff or reason about, and they would resettle on every React
+ * re-render, which reads as a flicker rather than a twinkle.
+ *
+ * Sits above the mesh and below content. Pointer events are off, so it
+ * cannot swallow a click meant for a chart underneath.
+ */
+const SPARKS = [
+  [6, 12, 2, 0], [14, 78, 1.5, 1.2], [22, 34, 2.5, 2.1], [29, 62, 1.5, 0.6],
+  [35, 8, 2, 3.0], [41, 88, 1.5, 1.8], [47, 25, 2.5, 0.3], [53, 70, 2, 2.6],
+  [58, 45, 1.5, 1.1], [64, 15, 2, 3.3], [70, 82, 2.5, 0.9], [76, 38, 1.5, 2.3],
+  [82, 58, 2, 1.5], [88, 20, 1.5, 3.6], [92, 74, 2.5, 0.4], [18, 50, 2, 2.9],
+];
+
+export function RoktimSparks() {
+  return (
+    <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 1 }} aria-hidden="true">
+      {SPARKS.map(([top, left, size, delay]) => (
+        <span
+          key={`${top}-${left}`}
+          className="rk-sparkle"
+          style={{ top: `${top}%`, left: `${left}%`, width: size, height: size, animationDelay: `${delay}s` }}
+        />
+      ))}
+    </div>
+  );
+}

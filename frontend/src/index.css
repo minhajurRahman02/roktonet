@@ -27,8 +27,10 @@ body {
 /* hero background blobs */
 @keyframes drift-a { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(30px,-20px) scale(1.1);} }
 @keyframes drift-b { 0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(-24px,18px) scale(1.12);} }
-.blob-a { animation: drift-a 14s ease-in-out infinite; }
-.blob-b { animation: drift-b 17s ease-in-out infinite; }
+/* Roughly double the previous pace (was 14s / 17s). Below about 8s the
+   drift stops reading as ambient and starts reading as a loop. */
+.blob-a { animation: drift-a 7s ease-in-out infinite; }
+.blob-b { animation: drift-b 8.5s ease-in-out infinite; }
 
 /* hero: hospital request network -- bubble pop in/out + blood drop travel */
 .bubble { animation: bubble-cycle 7s ease-in-out infinite; opacity: 0; transform: scale(.5); }
@@ -57,36 +59,11 @@ body {
 .bubble-3 { animation-delay: 3.5s; }
 .bubble-4 { animation-delay: 5.25s; }
 
-/* before/after: vibrating exclamation badge (not the whole bubble) */
-@keyframes exclaim-shake {
-  0%,100% { transform: translate(0,0) rotate(0deg); }
-  25% { transform: translate(-1px,-1px) rotate(-6deg); }
-  50% { transform: translate(0,0) rotate(0deg); }
-  75% { transform: translate(1px,-1px) rotate(6deg); }
-}
-.exclaim-badge {
-  animation: exclaim-shake 0.4s ease-in-out infinite;
-  position: absolute; top: -8px; right: -8px;
-  width: 18px; height: 18px; border-radius: 9999px;
-  background: #A9382F; color: white; font-size: 11px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-}
-
-.char-head { border-radius: 9999px; }
-.speech-tail-down::after {
-  content: ''; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
-  border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 7px solid var(--tail-color, #FBEAEA);
-}
-.speech-tail-side::after {
-  content: ''; position: absolute; left: -7px; top: 50%; transform: translateY(-50%);
-  border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 7px solid var(--tail-color, #E9F0EC);
-}
-.thought-dots span {
-  display: block; border-radius: 9999px; background: #FBEAEA; position: absolute;
-}
-.torso { border-radius: 14px 14px 5px 5px; position: relative; }
-.arm { position: absolute; top: 4px; width: 7px; height: 20px; border-radius: 4px; }
+/* The before/after section used to be drawn with CSS stick figures:
+   .exclaim-badge, .char-head, .torso, .arm, .speech-tail-down,
+   .speech-tail-side and .thought-dots. It is now two timelines of clock
+   faces, and those classes had no other user, so they are gone rather than
+   left behind for somebody to wonder about. */
 
 /* impact section: donut chart via conic-gradient */
 .donut {
@@ -185,4 +162,115 @@ body {
     animation: none !important;
   }
   .rk-draw { stroke-dashoffset: 0 !important; }
+}
+
+/* =========================================================================
+   Scroll reveal (Phase 7.6). Driven by hooks/useReveal.js, which adds
+   .reveal on mount and .is-in when the element is first scrolled to.
+   ========================================================================= */
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition: opacity .7s cubic-bezier(.22,.8,.26,1), transform .7s cubic-bezier(.22,.8,.26,1);
+}
+.reveal.is-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Everything here stops moving, which for the reveal means the
+     transition that brings an element in is switched off. Without the
+     override below, every revealed block would sit at opacity 0 forever and
+     the page would come up blank for anyone with the setting on. The hook
+     also short-circuits, so this is the belt to its braces. */
+  .blob-a, .blob-b, .bubble, .drop-1, .drop-2, .drop-3, .drop-4 { animation: none; }
+  .reveal { opacity: 1 !important; transform: none !important; transition: none; }
+}
+
+/* =========================================================================
+   Roktim on the landing page (Phase 7.6).
+
+   EVERY CLASS HERE IS PREFIXED rkl- ON PURPOSE. src/roktim/ already owns
+   .rk-mesh and .rk-draw for the admin dashboard, and an unprefixed copy
+   here would win on source order and quietly break them: the dashboard
+   mesh is position:fixed inset:-25%, this one is absolute inset:0.
+   .rk-sparkle is the deliberate exception, shared by both surfaces.
+   
+   These are the ONLY Roktim styles outside src/roktim/, and they exist
+   because the nav link and the launch section live in landing components.
+   Deleting this block is part of removing the module, same as the colour
+   tokens in tailwind.config.js.
+   ========================================================================= */
+
+/* The logo's animated gradient, as text. Same stops and the same 7s cycle
+   as RoktimBrand.jsx, so the nav link and the mark read as one thing. */
+.rkl-grad-text {
+  background: linear-gradient(100deg, #4A3F7A, #8474CE 38%, #C4B8F5 58%, #7A6BC0);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: rkl-slide 7s ease-in-out infinite;
+}
+@keyframes rkl-slide {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+.rkl-nav-link { position: relative; }
+.rkl-nav-link::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: -4px; height: 1px;
+  background: linear-gradient(90deg, transparent, #8474CE, transparent);
+  opacity: 0; transition: opacity .3s;
+}
+.rkl-nav-link:hover::after { opacity: 1; }
+
+.rk-sparkle {
+  position: absolute; border-radius: 9999px; background: #C4B8F5;
+  pointer-events: none; animation: rk-twinkle 2.8s ease-in-out infinite;
+}
+@keyframes rk-twinkle {
+  0%, 100% { opacity: 0; transform: scale(.4); }
+  45%      { opacity: 1; transform: scale(1); }
+}
+
+/* Section atmosphere. Blooms are heavily blurred and drift on a long loop,
+   per ROKTIM_UI_SPEC.md 4.3 -- behind content, never under a plot area. */
+.rkl-mesh { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.rkl-bloom {
+  position: absolute; border-radius: 9999px; filter: blur(70px); opacity: .5;
+  background: radial-gradient(circle, #574B90 0%, transparent 70%);
+  animation: rkl-drift 64s ease-in-out infinite;
+}
+@keyframes rkl-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(6%, -5%) scale(1.14); }
+  66%      { transform: translate(-5%, 4%) scale(.92); }
+}
+
+.rkl-card {
+  background: #141220; border: 1px solid #2A2640; border-radius: 1rem;
+  box-shadow: 0 0 0 1px rgba(87,75,144,.12), 0 18px 60px -22px rgba(87,75,144,.6);
+}
+
+/* Pill with an animated gradient border. The mask trick draws the gradient
+   only in the 1px ring: paint the whole box, then punch out everything
+   inside the padding box. */
+.rkl-pill { position: relative; border-radius: 9999px; background: #141220; }
+.rkl-pill::before {
+  content: ''; position: absolute; inset: -1px; border-radius: 9999px; padding: 1px;
+  background: linear-gradient(100deg, #4A3F7A, #8474CE, #C4B8F5, #7A6BC0);
+  background-size: 220% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: rkl-slide 7s ease-in-out infinite;
+}
+
+/* The seasonal curve draws itself in once, on first view. */
+.rkl-draw { stroke-dasharray: 1400; stroke-dashoffset: 1400; animation: rkl-draw 2.4s ease-out forwards; }
+@keyframes rkl-draw { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .rkl-grad-text, .rk-sparkle, .rkl-bloom, .rkl-pill::before { animation: none; }
+  .rkl-draw { stroke-dashoffset: 0; animation: none; }
 }

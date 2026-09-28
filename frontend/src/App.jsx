@@ -4,6 +4,9 @@ import ProtectedRoute from './routing/ProtectedRoute';
 import RoleRoute from './routing/RoleRoute';
 import AppShell from './components/organisms/AppShell';
 import Landing from './pages/Landing';
+import HowItWorks from './pages/HowItWorks';
+import About from './pages/About';
+import Privacy from './pages/Privacy';
 import HospitalOverview from './pages/hospital/Overview';
 import MyRequests from './pages/hospital/MyRequests';
 import NewRequest from './pages/hospital/NewRequest';
@@ -77,6 +80,12 @@ export default function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<Landing />} />
+          {/* Public, no login required. These are read by people deciding
+              whether RoktoNet is worth signing up for, so gating them
+              behind auth would defeat the point. */}
+          <Route path="/how-it-works" element={<HowItWorks />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/verify" element={<VerifyEmail />} />

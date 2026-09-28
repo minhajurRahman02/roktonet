@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 export default function HeroSection() {
   return (
     <section className="relative overflow-hidden bg-primary text-white">
@@ -22,12 +23,18 @@ export default function HeroSection() {
             >
               Become a donor
             </a>
-            <a
-              href="#how-it-works"
-              className="border border-white/30 text-white font-medium px-5 py-3 rounded-lg text-sm hover:bg-white/10 transition-colors duration-300"
+            {/* A page now, not an anchor. The old target was the
+                before/after section, which showed the contrast but never
+                explained the mechanism. */}
+            <Link
+              to="/how-it-works"
+              className="border border-white/30 text-white font-medium px-5 py-3 rounded-lg text-sm hover:bg-white/10 transition-colors duration-300 inline-flex items-center gap-2"
             >
               See how it works
-            </a>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </Link>
           </div>
         </div>
 
