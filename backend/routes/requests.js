@@ -264,33 +264,3 @@ router.post('/:id/confirm-delivery', requireAuth, requireRole('hospital', 'admin
   }
 });
 
-// GET /api/requests/:id/events - the real, live tracking log for a request.
-// Ownership-checked the same way as GET /:id -- must confirm access to the
-// parent request before exposing its event history.
-router.get('/:id/events', requireAuth, async (req, res) => {
-  try {
-    const requestResult = await pool.query('SELECT org_id FROM requests WHERE request_id = $1', [
-      req.params.id,
-    ]);
-    if (requestResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
-
-    const isOwner = req.user.org_id === requestResult.rows[0].org_id;
-    const isAdmin = req.user.role === 'admin';
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'You do not have access to this request' });
-    }
-
-    const eventsResult = await pool.query(
-      'SELECT * FROM request_events WHERE request_id = $1 ORDER BY created_at ASC',
-      [req.params.id]
-    );
-    res.json(eventsResult.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
