@@ -70,3 +70,28 @@ export function getEarliestEligibility(donor) {
 const COMPONENT_LABELS = { whole_blood: 'whole blood', platelets: 'platelets', plasma: 'plasma' };
 const COMPONENT_ORDER = ['whole_blood', 'platelets', 'plasma'];
 
+/**
+ * Full breakdown across all three components, in a fixed order --
+ * replaces showing only the soonest-clearing one, since that hid real
+ * information about the other two (a donor who just gave platelets
+ * would only ever see "eligible in 7 days", with no visibility into
+ * when their whole-blood/plasma eligibility comes back too).
+ * @returns {"Eligible for all components" | "Eligible for whole blood in Nd, eligible for platelets now, ..."}
+ */
+export function formatEligibility(donor) {
+  const results = COMPONENT_ORDER.map((component) => ({ component, ...getEligibility(donor, component) }));
+
+  if (results.every((r) => r.eligible)) {
+    return 'Eligible for all components';
+  }
+
+  const parts = results.map((r) => {
+    const label = COMPONENT_LABELS[r.component];
+    if (r.eligible) return `eligible for ${label} now`;
+    const days = Math.ceil((r.eligibleDate - new Date()) / (1000 * 60 * 60 * 24));
+    return `eligible for ${label} in ${days} day${days === 1 ? '' : 's'}`;
+  });
+
+  const joined = parts.join(', ');
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
