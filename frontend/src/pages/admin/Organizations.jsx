@@ -114,7 +114,7 @@ export default function AdminOrganizations() {
           <Input className="md:col-span-2" placeholder="Search by name…" value={filters.search} onChange={set('search')} />
           <Select value={filters.org_type} onChange={set('org_type')}><option value="">All types</option>{ORG_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</Select>
           <Select value={filters.district} onChange={set('district')}><option value="">All districts</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select>
-          <Button type="submit" variant="secondary">Apply</Button>
+          {/* <Button type="submit" variant="secondary">Apply</Button> */}
         </FilterBar>
       </form>
 

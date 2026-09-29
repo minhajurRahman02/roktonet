@@ -82,7 +82,7 @@ export default function AdminRequests() {
           <Select value={filters.district} onChange={set('district')}><option value="">All districts</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select>
           <Select value={filters.blood_type} onChange={set('blood_type')}><option value="">All blood types</option>{BLOOD_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}</Select>
           <Select value={filters.cancelled} onChange={set('cancelled')}><option value="false">Hide cancelled</option><option value="">Show all</option><option value="true">Cancelled only</option></Select>
-          <Button type="submit" variant="secondary">Apply</Button>
+          {/* <Button type="submit" variant="secondary">Apply</Button> */}
           <div className="col-span-2 md:col-span-6"><DateRangeFilter value={range} onChange={setRange} /></div>
         </FilterBar>
       </form>

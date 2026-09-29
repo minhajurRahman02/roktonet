@@ -75,7 +75,7 @@ export default function AdminUsers() {
           </Select>
           <Select value={filters.is_active} onChange={set('is_active')}><option value="">Active + inactive</option><option value="true">Active only</option><option value="false">Deactivated only</option></Select>
           <Select value={filters.is_verified} onChange={set('is_verified')}><option value="">Verified + unverified</option><option value="true">Verified</option><option value="false">Unverified</option></Select>
-          <Button type="submit" variant="secondary">Apply</Button>
+          {/* <Button type="submit" variant="secondary">Apply</Button> */}
         </FilterBar>
       </form>
 

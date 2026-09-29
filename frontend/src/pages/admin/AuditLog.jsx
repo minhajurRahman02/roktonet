@@ -60,7 +60,7 @@ export default function AdminAuditLog() {
           <Select value={filters.action_type} onChange={set('action_type')}><option value="">All actions</option>{ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}</Select>
           <Select value={filters.admin_user_id} onChange={set('admin_user_id')}><option value="">All admins</option>{(admins.data || []).map((a) => <option key={a.user_id} value={a.user_id}>{a.full_name || a.email}</option>)}</Select>
           <Select value={filters.target_type} onChange={set('target_type')}><option value="">All targets</option>{TARGETS.map((t) => <option key={t} value={t}>{t}</option>)}</Select>
-          <Button type="submit" variant="secondary">Apply</Button>
+          {/* <Button type="submit" variant="secondary">Apply</Button> */}
           <div className="col-span-2 md:col-span-4"><DateRangeFilter value={range} onChange={setRange} /></div>
         </FilterBar>
       </form>

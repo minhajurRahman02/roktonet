@@ -132,7 +132,7 @@ export default function AdminDonors() {
             placeholder={filters.district ? 'Any thana' : 'Pick a district first'}
           />
           <Select value={filters.has_login} onChange={set('has_login')}><option value="">Login: any</option><option value="true">Has login</option><option value="false">No login</option></Select>
-          <Button type="submit" variant="secondary" className="col-span-2 md:col-span-8 md:justify-self-end">Apply</Button>
+          {/* <Button type="submit" variant="secondary" className="col-span-2 md:col-span-8 md:justify-self-end">Apply</Button> */}
         </FilterBar>
       </form>
 

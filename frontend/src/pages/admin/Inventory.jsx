@@ -86,7 +86,7 @@ export default function AdminInventory() {
           <Select value={filters.component} onChange={set('component')}><option value="">All components</option>{COMPONENTS.map((c) => <option key={c} value={c}>{c}</option>)}</Select>
           <Select value={filters.district} onChange={set('district')}><option value="">All districts</option>{(districts.data || []).map((d) => <option key={d} value={d}>{d}</option>)}</Select>
           <Select value={filters.expiring_within_days} onChange={set('expiring_within_days')}><option value="">Any expiry</option><option value="3">Expiring ≤ 3 days</option><option value="7">Expiring ≤ 7 days</option><option value="14">Expiring ≤ 14 days</option><option value="30">Expiring ≤ 30 days</option></Select>
-          <Button type="submit" variant="secondary">Apply</Button>
+          {/* <Button type="submit" variant="secondary">Apply</Button> */}
         </FilterBar>
       </form>
 
