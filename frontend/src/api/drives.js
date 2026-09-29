@@ -43,10 +43,3 @@ export function logUnit(driveId, data) {
   });
 }
 
-/**
- * @returns {Promise<Array>} every unit logged against this drive, joined
- * to donor names, ordered chronologically.
- */
-export function getDriveLog(driveId) {
-  return apiFetch(`/api/drives/${driveId}/log`);
-}
