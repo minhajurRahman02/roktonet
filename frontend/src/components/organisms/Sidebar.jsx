@@ -105,9 +105,9 @@ export default function Sidebar({ collapsed, onToggleCollapsed }) {
           {/* Placeholder mark -- swap for the real RoktoNet logo when it
               exists. A simple droplet keeps the sidebar from looking
               unfinished in the meantime without pretending to be final. */}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="#A9382F" className="shrink-0" aria-hidden="true">
+          {/* <svg width="20" height="20" viewBox="0 0 24 24" fill="#A9382F" className="shrink-0" aria-hidden="true">
             <path d="M12 2C12 2 5 11.5 5 16a7 7 0 0 0 14 0c0-4.5-7-14-7-14z" />
-          </svg>
+          </svg> */}
           <span
             className={`font-display font-semibold text-lg whitespace-nowrap transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0' : 'opacity-100'}`}
           >

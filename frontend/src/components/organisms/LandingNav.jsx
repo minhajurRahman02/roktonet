@@ -58,11 +58,11 @@ export default function LandingNav() {
               dashed border are the placeholder's own styling and should go
               with it; the sizing on the wrapper is what the layout depends
               on. */}
-          <span className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-white/10 border border-dashed border-primary/40 dark:border-white/25 grid place-items-center shrink-0 overflow-hidden">
+          {/* <span className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-white/10 border border-dashed border-primary/40 dark:border-white/25 grid place-items-center shrink-0 overflow-hidden">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="#A9382F" aria-hidden="true">
               <path d="M12 2C12 2 5 11.5 5 16a7 7 0 0 0 14 0c0-4.5-7-14-7-14z" />
             </svg>
-          </span>
+          </span> */}
           <span className="font-display font-bold text-xl text-primary dark:text-textprimary-dark">RoktoNet</span>
         </SectionLink>
 
