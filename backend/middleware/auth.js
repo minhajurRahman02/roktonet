@@ -29,18 +29,6 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  try {
-    // Throws if the signature is invalid or the token has expired.
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload; // { user_id, email, role, org_id }
-    next();
-  } catch (err) {
-    const message =
-      err.name === 'TokenExpiredError'
-        ? 'Session expired, please log in again'
-        : 'Invalid token';
-    return res.status(401).json({ error: message });
-  }
 }
 
 // Usage: router.post('/', requireAuth, requireRole('hospital'), handler)
