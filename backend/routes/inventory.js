@@ -161,6 +161,20 @@ router.post('/:unit_id/dispatch', requireAuth, requireRole('bank', 'ngo', 'admin
       [unit.unit_id]
     );
 
+    for (const allocation of allocationResult.rows) {
+      await logRequestEvent(
+        allocation.request_id,
+        'dispatch_needed', // reusing the planned event_type name from the notifications design
+        'A unit has been dispatched and is on its way'
+      );
+      await notifyOrg(
+        allocation.hospital_org_id,
+        'dispatch_needed',
+        'A blood unit for your request has been dispatched.',
+        allocation.request_id,
+        allocation.urgency_tier
+      );
+    }
 
     res.json({ unit_id: unit.unit_id, status: 'dispatched' });
   } catch (err) {
