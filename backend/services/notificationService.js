@@ -24,7 +24,18 @@ async function notifyOrg(orgId, type, message, relatedRequestId = null, urgencyT
   // Email every user tied to this org -- there's no concept of a single
   // "primary contact" yet, so everyone with a login under this org gets
   // notified. A simplifying assumption, fine at current team-account scale.
- 
+  try {
+    const usersResult = await pool.query('SELECT email FROM users WHERE org_id = $1', [orgId]);
+    await Promise.all(
+      usersResult.rows.map((u) => sendNotificationEmail(u.email, message, relatedRequestId))
+    );
+  } catch (err) {
+    // Email is a best-effort add-on -- the in-app notification above
+    // already succeeded, so a delivery failure here shouldn't surface as
+    // an error to whatever action triggered this (a donor confirming, a
+    // bank dispatching, etc).
+    console.error('[notifications] email delivery failed:', err.message);
+  }
 }
 
 module.exports = { notifyOrg };
